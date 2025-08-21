@@ -89,3 +89,10 @@ See a full demonstration of the IISCV system in action, from incremental develop
 
 [**Watch the full demo on YouTube**](https://youtu.be/SgEvuOrFJIs?si=rzuchrAkJF9J-2Kg)
 
+<p align="center">
+  <a href="https://youtu.be/SgEvuOrFJIs?si=rzuchrAkJF9J-2Kg" target="_blank">
+    <img src="https://img.youtube.com/vi/SgEvuOrFJIs/hqdefault.jpg" alt="Video Demo of IISCV System" style="width:100%; max-width:600px;">
+  </a>
+  <br />
+  <b>Click to Watch the Full Demo on YouTube</b>
+</p>
