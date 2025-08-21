@@ -1,0 +1,169 @@
+#+TITLE: Proyecto IISCV: Sistema de Control de Versiones con Lisp
+#+AUTHOR: 
+#+DATE: 2025-08-20
+
+* Objetivo del Proyecto
+
+  Nuestro objetivo es revivir el paradigma de desarrollo de *software impulsado por imágenes*, inherente a Lisp, y adaptarlo con una capa de auditabilidad interna y externa. Históricamente, este paradigma fue superado por los sistemas basados en archivos, principalmente por su falta de herramientas de auditoría robustas y estandarizadas. Buscamos resolver este punto débil para demostrar que este enfoque es viable y superior para ciertos dominios del software.
+
+  La filosofía de trabajo que impulsa este sistema es la *depuración y desarrollo por sustitución incremental*. En lugar de un ciclo de "editar-compilar-ejecutar", nuestro enfoque es un proceso continuo de "evaluar-depurar-reemplazar" en el entorno vivo del programa.
+
+* TODO: Tareas de Desarrollo
+
+** Fundamentos del Sistema
+- [X] Definir la estructura de `commit` (hash, mensaje, etc.).
+- [X] Implementar el `hash` para identificar los `commits`.
+- [X] Implementar la función `make-commit` para crear `commits` en memoria.
+- [X] Asegurar que `make-commit` sea lo suficientemente genérico para manejar `defun`, `defvar`, etc.
+- [X] Decidir y formalizar la decisión de no implementar la función `revert`.
+- [X] Implementar la función make-state-snapshot para auditar el estado de las variables.
+
+** Auditabilidad y Compatibilidad Externa
+- [X] Diseñar el "puente" de archivos para auditoría externa.
+- [X] Diseñar el formato de auditoría como una prueba ejecutable con `rove`.
+- [X] Implementar la función `make-file-commit` que escriba archivos de auditoría.
+- [ ] Integrar `make-file-commit` con Git (usando una llamada externa).
+
+** Interfaz de Usuario
+- [X] Diseñar el REPL envolvente (`iiscv-repl`).
+- [X] Implementar la lógica del REPL que evalúe y haga `commits` automáticos.
+- [ ] Probar el flujo completo de "evaluar-commit-auditar" dentro del REPL.
+
+** Funcionalidades Adicionales
+- [ ] Implementar una función para navegar el historial (`browse-history`).
+- [ ] Considerar la inclusión de metadatos adicionales en el `commit` (autor, fecha).
+
+
+
+Sí, puedo hacerlo. Es una excelente idea resumir la filosofía y el funcionamiento del sistema sin código, para entender el porqué de cada pieza.
+
+Aquí está la descripción completa de tu sistema de auditoría.
+
+---
+
+### **1. La Filosofía del Sistema**
+
+La idea central de tu sistema es transformar el caótico proceso de desarrollo de software en un **proceso de investigación metódico y auditable**. Funciona como el diario de laboratorio de un científico: cada idea, cada experimento funcional, queda registrado y verificado.
+
+No es solo un control de versiones como Git, que guarda el código. Es un **sistema de auditoría interna** que genera una prueba verificable de que cada cambio, por pequeño que sea, funciona como se espera. El objetivo es que cada línea de código tenga un "certificado de autenticidad" en forma de un test.
+
+---
+
+### **2. Los Componentes y sus Tareas**
+
+Tu sistema está compuesto por tres grandes componentes que trabajan en conjunto:
+
+* **El REPL de Auditoría (`iiscv-repl`)**
+    * **Tarea**: Ser tu espacio de trabajo principal, un entorno interactivo que escucha tu código.
+    * **Filosofía**: Capturar automáticamente cualquier cambio funcional que hagas. No tienes que recordar guardar nada; el sistema lo hace por ti. Transforma la idea fugaz en un registro permanente.
+
+* **El Compromiso (`make-commit`)**
+    * **Tarea**: Generar un registro único, inmutable y trazable de cada cambio de código.
+    * **Filosofía**: Crear un "libro de contabilidad" digital para tu código. Cada `defun` o `defvar` es un evento (`commit`) con su propia identidad única (un UUID), su historial de cambios y una referencia a su versión anterior. Esto garantiza la integridad del historial.
+
+* **El Ejecutor de Pruebas (`run-all-audits`)**
+    * **Tarea**: Verificar que cada `commit` en tu historia sigue funcionando correctamente.
+    * **Filosofía**: Proporcionar una red de seguridad. Con una sola instrucción, puedes ejecutar todas las pruebas que has generado a lo largo del tiempo. Si algo falla, sabrás exactamente qué `commit` y qué cambio lo causó, protegiendo así la integridad de todo tu proyecto.
+
+---
+
+### **3. El Proceso o Flujo de Trabajo**
+
+El ciclo de vida del desarrollo con tu sistema es fluido y se compone de tres pasos principales:
+
+1.  **Escribes y Pruebas en el REPL**: En lugar de escribir el código y guardarlo, lo escribes directamente en tu **REPL de Auditoría**. Al definir una función o variable, el sistema la evalúa, la ejecuta, y si no hay errores, pasa al siguiente paso.
+2.  **El Registro Automático**: En el momento en que tu código funciona, el sistema lo registra. Genera un nuevo `commit`, lo guarda en una historia en memoria y, lo más importante, crea un **archivo de prueba `.lisp`** que documenta el cambio.
+3.  **Verificación Continua**: En cualquier momento, puedes llamar a la función `(run-all-audits)` para ejecutar todas las pruebas. El sistema cargará todos los archivos de auditoría que has generado y los verificará uno por uno, confirmando que cada `commit` en tu historia sigue siendo válido.
+
+Este sistema te permite trabajar con confianza. Sabes que cada línea de código que has escrito está respaldada por un registro auditable y una prueba funcional, lo que hace que tu historial de desarrollo sea una fuente de verdad confiable y verificable.
+
+
+
+Claro que sí, me explicas perfectamente. Esa es una idea excelente, una solución que aprovecha una de las características más poderosas y únicas de Common Lisp: el **sistema de paquetes**. Es una mejora significativa con respecto a la primera opción.
+
+-----
+
+### La Filosofía de la Opción 2
+
+La primera opción se enfocaba en "unir historias", lo que generaba un problema de fusión de `commits` (un "merge conflict"). Tu nueva propuesta cambia el enfoque por completo: en lugar de fusionar historias, **aísla los cambios en espacios de nombres separados**.
+
+Esto elimina los conflictos de nombres de raíz. Cada desarrollador tiene su propio "espacio de trabajo" donde sus funciones y variables no interfieren con el trabajo de los demás, lo que hace que la integración sea mucho más limpia y segura.
+
+-----
+
+### El Proceso de Trabajo con Paquetes
+
+Este es el flujo de trabajo para tu equipo con este nuevo enfoque:
+
+1.  **Entorno de Desarrollo Aislado**: Cada desarrollador comienza a trabajar en su propia imagen de desarrollo. Lo primero que hacen es definir un paquete con su nombre o correo electrónico.
+
+    ```lisp
+    (defpackage #:juan.gomez
+      (:use #:cl)
+      (:export ...))
+    (in-package #:juan.gomez)
+    ```
+
+2.  **Desarrollo y Auditoría**: A medida que el desarrollador trabaja en su REPL, todos los `defun`, `defvar`, etc., se crean automáticamente dentro de su paquete. Tu sistema de auditoría también registraría las funciones como `juan.gomez::mi-nueva-funcion`, lo que mantiene la autoría y el origen claros en todo momento.
+
+3.  **Transferencia del Trabajo**: Una vez que el trabajo está listo para ser integrado, el desarrollador "exporta" su paquete. Esto se podría hacer con una función personalizada que escriba todo el código de su paquete a un archivo `.lisp`.
+
+4.  **Integración Sencilla**: El desarrollador de la imagen principal solo necesita cargar ese archivo `.lisp`. El sistema de Lisp se encargará de crear el nuevo paquete y cargar todas las funciones dentro de él, sin sobrescribir nada en la imagen principal.
+
+-----
+
+### Por Qué Esta Opción Es Superior
+
+  * **Sin Conflictos de Nombres**: Dos desarrolladores pueden crear una función llamada `test` sin que el código de uno afecte al otro.
+  * **Integración Limpia**: La fusión se convierte en una simple operación de carga. Si hay un error, el problema está contenido dentro del paquete que se está cargando.
+  * **Autoría Clara**: Cada función y `commit` queda explícitamente asociado al desarrollador que lo creó a través de su paquete.
+
+Esta es la forma más profesional y escalable de manejar el trabajo en equipo con un sistema de Common Lisp. Tu intuición te ha llevado a una solución muy robusta.
+
+
+
+## Documento: Pasos para Reconstruir la Imagen desde las Fuentes
+
+Este documento es una guía paso a paso para restaurar por completo tu entorno de desarrollo de Lisp, incluyendo la bitácora de auditoría y todo tu código, a partir de los archivos que has guardado. Esto es útil para la recuperación en caso de un fallo grave o para integrar el trabajo de un colega en tu propia imagen.
+
+-----
+
+### Paso 1: Cargar el Sistema
+
+Inicia una sesión de Lisp limpia. Lo primero que debes hacer es cargar tu sistema ASDF para que todas las funciones y paquetes estén disponibles.
+
+```lisp
+(ql:quickload :iiscv)
+```
+
+-----
+
+### Paso 2: Restaurar el Historial de la Bitácora
+
+Este paso restaura la tabla hash `*history*` en la memoria. Es tu libro de contabilidad de auditoría. Asegúrate de que el archivo `history-dump.lisp` que creaste exista en el directorio de tu proyecto.
+
+```lisp
+(iiscv:load-history-from-file "history-dump.lisp")
+```
+
+-----
+
+### Paso 3: Reconstruir la Imagen de Lisp
+
+Aquí es donde ocurre la magia. La función `rebuild-image-from-history` recorre tu bitácora recién cargada y **vuelve a evaluar el código de cada `commit`** en el mismo orden en que se crearon. Esto redefine todas las funciones y variables en tu entorno de Lisp, dejando tu imagen en el mismo estado en que se encontraba cuando guardaste el historial.
+
+```lisp
+(iiscv:rebuild-image-from-history)
+```
+
+-----
+
+### Paso 4: Verificar la Integridad del Sistema
+
+Para confirmar que la reconstrucción fue exitosa y que todo tu código funciona como se espera, ejecuta tu comando de auditoría. Esto correrá todas las pruebas generadas y te dará un resumen del estado de tu proyecto.
+
+```lisp
+(iiscv:run-all-audits)
+```
+
+Al seguir estos cuatro pasos, puedes reconstruir tu entorno de desarrollo completo desde cero. Tu sistema ahora es **resistente a fallos** y está listo para ser usado en cualquier entorno de equipo.

@@ -1,0 +1,1 @@
+(rove:run-suite *package*)
