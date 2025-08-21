@@ -83,4 +83,9 @@ The central philosophy that drives this system is **"debugging and development b
 
 This project is open-source and available under the MIT License.
 
-https://youtu.be/SgEvuOrFJIs?si=rzuchrAkJF9J-2Kg
+### Video Demonstration
+
+See a full demonstration of the IISCV system in action, from incremental development and auditing to full image recovery, in this video:
+
+[**Watch the full demo on YouTube**](https://youtu.be/SgEvuOrFJIs?si=rzuchrAkJF9J-2Kg)
+
