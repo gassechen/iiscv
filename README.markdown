@@ -39,7 +39,7 @@ The central philosophy that drives this system is **"debugging and development b
 
 ```bash
 git clone [https://github.com/gassechen/iiscv.git](https://github.com/gassechen/iiscv.git) quicklisp/local-projects/iiscv
-```
+
 
 ```lisp 
 IISCV> (iiscv-repl)
@@ -186,4 +186,27 @@ IISCV-R> (cl-graph:vertexes *atomic-history-graph*)
     Corrected function: adds 3 to a number. TIMESTAMP 3964868565)>
  #<2D9DEC9A-2AE3-4F15-8891-8B49A74BB7A2>) 
 IISCV-R> 
-```
+
+
+IISCV> (show-project-milestones)
+
+--- Project Milestones (Human History) ---
+
+* Milestone: Added the initial add-two function.
+  UUID: 0198F786-9E41-41FD-BA50-640F997E89B1
+  Timestamp: 3964880619
+  Atomic Changes: (7DE2102A-0B1F-4D78-A092-D6BEAA422846)
+
+* Milestone: Added multiplication and subtraction functions.
+  UUID: 77EED9BB-9BEC-491E-8FDF-C849D75F43C4
+  Timestamp: 3964880655
+  Atomic Changes: (825377BA-3EA8-4985-9A13-F49E9B2E3AD2
+                   B27EC5AB-0AB5-47D8-A82A-83F846FE6C22)
+
+* Milestone: Modified add-two to be more robust.
+  UUID: E6D01FB5-5FA5-4135-9C34-C67A08A72EBC
+  Timestamp: 3964880678
+  Atomic Changes: (65652141-BADE-4FA3-A63B-9A04ED64DB3B)
+--------------------------------------------
+NIL
+IISCV> 
