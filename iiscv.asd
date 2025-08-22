@@ -2,7 +2,7 @@
   :version "0.0.1"
   :author ""
   :license ""
-  :depends-on ("rove" "uuid") 
+  :depends-on ("rove" "uuid" "cl-graph") 
   :components ((:module "src"
                 :components
                 ((:file "main"))))
