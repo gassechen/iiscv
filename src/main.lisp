@@ -124,6 +124,14 @@
          (search-key (format nil "~A::~A" package-name symbol-name)))
     (gethash search-key *function-to-uuid-map*)))
 
+(defun get-source-form-by-uuid (uuid)
+  "Retrieves the source form of a commit by its UUID."
+  (let* ((vertex (find-vertex-by-uuid *atomic-history-graph* uuid))
+         (commit-data (when vertex (cl-graph:element vertex))))
+    (if commit-data
+        (getf commit-data :source-form)
+        (format t "Error: Commit with UUID ~A not found in atomic history.~%" uuid))))
+
 
 
 ;; Helper function to get the correct documentation type
@@ -170,6 +178,94 @@
             (setf found-vertex v)))))
     found-vertex))
 
+
+
+(defun show-atomic-commit()
+  "show-atomic-commit"
+  (cl-graph:vertexes *atomic-history-graph*))
+
+(defun show-human-commit()
+  "show-human-commit"
+  (cl-graph:vertexes *human-history-graph*))
+
+
+(defun rebuild-image-from-human-history ()
+  "Reconstruye la imagen del sistema evaluando los commits atómicos enlazados a la historia humana."
+  (unless *human-history-graph*
+    (format t "Error: El grafo de historial humano está vacío. No hay nada que reconstruir.~%")
+    (return-from rebuild-image-from-human-history nil))
+  (format t "Reconstruyendo imagen desde la historia humana (curada)...~%")
+  
+  (let ((human-commits (cl-graph:topological-sort *human-history-graph*)))
+    (dolist (human-commit-node human-commits)
+      (let* ((commit-data (cl-graph:element human-commit-node))
+             (atomic-uuids (getf commit-data :atomic-uuids)))
+        (format t "Procesando commit humano: ~A~%" (getf commit-data :message))
+        (dolist (atomic-uuid atomic-uuids)
+          (let* ((atomic-vertex (find-vertex-by-uuid *atomic-history-graph* atomic-uuid))
+                 (atomic-data (when atomic-vertex (cl-graph:element atomic-vertex))))
+            (when atomic-data
+              (let ((form (getf atomic-data :source-form)))
+                (format t "  -> Evaluando commit atómico ~A: ~A~%" atomic-uuid form)
+                (handler-case
+                    (eval form)
+                  (error (e)
+                    (format t "~%Error al evaluar commit atómico ~A: ~A~%" atomic-uuid e))))))))))
+  (format t "Reconstrucción de imagen completada.~%"))
+
+
+
+(defun rebuild-image-from-atomic-history ()
+  "Reconstruye la imagen del sistema evaluando cada commit atómico en el historial. Útil para recuperación de desastres."
+  (unless *atomic-history-graph*
+    (format t "Error: El grafo de historial atómico está vacío. No hay nada que reconstruir.~%")
+    (return-from rebuild-image-from-atomic-history nil))
+  (format t "Reconstruyendo imagen desde el historial atómico (completo)...~%")
+  
+  (let ((vertices (cl-graph:topological-sort *atomic-history-graph*)))
+    (dolist (vertex vertices)
+      (let* ((commit-data (cl-graph:element vertex))
+             (form (getf commit-data :source-form)))
+        (format t "Evaluando commit ~A: ~A~%" (getf commit-data :uuid) form)
+        (handler-case
+            (eval form)
+          (error (e)
+            (format t "~%Error al evaluar el commit ~A: ~A~%" (getf commit-data :uuid) e)))))
+  (format t "Reconstrucción de imagen completada.~%")))
+
+
+
+(defun get-data-from-vertex (vertex)
+  "Helper function to safely get the property list from a cl-graph vertex."
+  (let ((element (cl-graph:element vertex)))
+    (when (listp element)
+      element)))
+
+
+(defun show-project-milestones ()
+  "Displays the curated project history by navigating the human commits."
+  (format t "~%--- Project Milestones (Human History) ---~%")
+  (let ((human-commits (cl-graph:topological-sort *human-history-graph*)))
+    (dolist (commit-node human-commits)
+      (let ((data (get-data-from-vertex commit-node)))
+        (when data
+          (format t "~%* Milestone: ~A~%" (getf data :message))
+          (format t "  UUID: ~A~%" (getf data :uuid))
+          (format t "  Timestamp: ~A~%" (getf data :timestamp))
+          (format t "  Atomic Changes: ~A~%" (getf data :atomic-uuids))))))
+  (format t "--------------------------------------------~%"))
+
+(defun audit-atomic-history ()
+  "Displays the complete and detailed history by navigating the atomic commits."
+  (format t "~%--- Atomic History Audit (Blockchain) ---~%")
+  (let ((atomic-commits (cl-graph:topological-sort *atomic-history-graph*)))
+    (dolist (commit-node atomic-commits)
+      (let ((data (get-data-from-vertex commit-node)))
+        (when data
+          (format t "~%* Atomic Commit: ~A~%" (getf data :uuid))
+          (format t "  Message: ~A~%" (getf data :message))
+          (format t "  Form: ~A~%" (getf data :source-form))
+          (format t "  Timestamp: ~A~%" (getf data :timestamp)))))))
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
