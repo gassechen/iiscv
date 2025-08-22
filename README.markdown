@@ -39,3 +39,150 @@ The central philosophy that drives this system is **"debugging and development b
 
 ```bash
 git clone [https://github.com/gassechen/iiscv.git](https://github.com/gassechen/iiscv.git) quicklisp/local-projects/iiscv
+
+
+```lisp 
+IISCV> (iiscv-repl)
+
+IISCV-R> (defun add-two (x)
+             "Adds 2 to a number."
+             (+ x 2))
+WARNING: redefining IISCV::ADD-TWO in DEFUN
+
+ADD-TWO 
+IISCV-R> (human-commit "Added the initial add-two function." 'add-two)
+
+"27423BA5-BA6E-4996-BE6F-4A904BF704D2" 
+IISCV-R> (get-source-form "iiscv::add-two")
+
+(DEFUN ADD-TWO (X) "Adds 2 to a number." (+ X 2)) 
+IISCV-R> (defun add-two (x)
+             "Corrected function: adds 3 to a number."
+             (+ x 3))
+WARNING: redefining IISCV::ADD-TWO in DEFUN
+
+ADD-TWO 
+IISCV-R> (human-commit "Corrected add-two to add 3 instead of 2." 'add-two)
+
+"2B03DECF-B21E-45C4-8776-CC0F8F6D1029" 
+IISCV-R> (get-source-form "iiscv::add-two")
+
+(DEFUN ADD-TWO (X) "Corrected function: adds 3 to a number." (+ X 3)) 
+IISCV-R> (cl-graph:vertexes *human-history-graph*)
+
+(#<(UUID D30E2723-5E97-4926-9D87-CDA78F8CB0F0 MESSAGE
+    Se agregaron funciones de suma y producto básicas ATOMIC-UUIDS
+    (14AD8CAF-6186-46C0-96CB-6344C25CB92F A40E9C9D-4322-483D-94AB-74709644B9A2)
+    TIMESTAMP 3964862788)>
+ #<(UUID F397D644-2C65-46A1-BECD-9A4EB85D1BE4 MESSAGE
+    Se agregó validación a la función de suma ATOMIC-UUIDS
+    (1B572C8C-E5AF-469F-92A8-1D71CFE0E73F A40E9C9D-4322-483D-94AB-74709644B9A2)
+    TIMESTAMP 3964862922)>
+ #<D30E2723-5E97-4926-9D87-CDA78F8CB0F0>
+ #<F397D644-2C65-46A1-BECD-9A4EB85D1BE4>
+ #<(UUID 433B5978-1AFA-4C22-8C77-4617E4FC6B77 MESSAGE
+    Se agregó la función de división y se actualizó la función de producto
+    ATOMIC-UUIDS
+    (61B1973E-FA71-4DFE-8AED-A4BAFF8F5660 3EC4379F-A233-40EE-9706-46C30B4286A1)
+    TIMESTAMP 3964863389)>
+ #<433B5978-1AFA-4C22-8C77-4617E4FC6B77>
+ #<(UUID 0036F216-02A2-4F8A-A067-B8AB307614D2 MESSAGE
+    Se agregó y corrigió la función TEST-GLOBAL-VARIABLE y su variable global.
+    ATOMIC-UUIDS
+    (2CCF968C-7491-41D5-96C5-4EEE5FC7A612 D3AAD0FA-E19D-42F6-8D65-BE93088DAD43)
+    TIMESTAMP 3964863914)>
+ #<0036F216-02A2-4F8A-A067-B8AB307614D2>
+ #<(UUID AF9E60E7-F5B1-4805-BA3E-ECDA50DCB0D1 MESSAGE
+    Added the initial add-two function. ATOMIC-UUIDS
+    (0B863120-6FB4-4CDF-96BD-DD488C8775E1) TIMESTAMP 3964868339)>
+ #<AF9E60E7-F5B1-4805-BA3E-ECDA50DCB0D1>
+ #<(UUID 27423BA5-BA6E-4996-BE6F-4A904BF704D2 MESSAGE
+    Added the initial add-two function. ATOMIC-UUIDS
+    (B948A001-562B-4008-8C22-719DA7BB133A) TIMESTAMP 3964868513)>
+ #<27423BA5-BA6E-4996-BE6F-4A904BF704D2>
+ #<(UUID 2B03DECF-B21E-45C4-8776-CC0F8F6D1029 MESSAGE
+    Corrected add-two to add 3 instead of 2. ATOMIC-UUIDS
+    (2D9DEC9A-2AE3-4F15-8891-8B49A74BB7A2) TIMESTAMP 3964868575)>
+ #<2B03DECF-B21E-45C4-8776-CC0F8F6D1029>) 
+IISCV-R> (cl-graph:vertexes *atomic-history-graph*)
+
+(#<(UUID 14AD8CAF-6186-46C0-96CB-6344C25CB92F SOURCE-FORM
+    (DEFUN SUM (A B) Calculates the sum of two numbers. (+ A B)) MESSAGE
+    Calculates the sum of two numbers. TIMESTAMP 3964862599)>
+ #<(UUID A40E9C9D-4322-483D-94AB-74709644B9A2 SOURCE-FORM
+    (DEFUN PRODUCT (A B) Calculates the product of two numbers. (* A B))
+    MESSAGE Calculates the product of two numbers. TIMESTAMP 3964862685)>
+ #<14AD8CAF-6186-46C0-96CB-6344C25CB92F>
+ #<A40E9C9D-4322-483D-94AB-74709644B9A2>
+ #<(UUID 1B572C8C-E5AF-469F-92A8-1D71CFE0E73F SOURCE-FORM
+    (DEFUN SUM (A B)
+      Calculates the sum of two numbers, ensuring they are valid.
+      (UNLESS (AND (NUMBERP A) (NUMBERP B)) (ERROR Inputs must be numbers.))
+      (+ A B))
+    MESSAGE Calculates the sum of two numbers, ensuring they are valid.
+    TIMESTAMP 3964862908)>
+ #<1B572C8C-E5AF-469F-92A8-1D71CFE0E73F>
+ #<(UUID 61B1973E-FA71-4DFE-8AED-A4BAFF8F5660 SOURCE-FORM
+    (DEFUN DIVIDE (A B)
+      Divides the first number by the second. Prevents division by zero.
+      (WHEN (= B 0) (ERROR Cannot divide by zero.))
+      (/ A B))
+    MESSAGE Divides the first number by the second. Prevents division by zero.
+    TIMESTAMP 3964863159)>
+ #<61B1973E-FA71-4DFE-8AED-A4BAFF8F5660>
+ #<(UUID 3EC4379F-A233-40EE-9706-46C30B4286A1 SOURCE-FORM
+    (DEFUN PRODUCT (A B)
+      Calculates the product of two numbers, with a helpful message.
+      (FORMAT T Calculating product...~%)
+      (* A B))
+    MESSAGE Calculates the product of two numbers, with a helpful message.
+    TIMESTAMP 3964863166)>
+ #<3EC4379F-A233-40EE-9706-46C30B4286A1>
+ #<(UUID B2376EDA-5E4B-4451-8EFC-EC6699832796 SOURCE-FORM
+    (DEFUN TEST-GLOBAL-VARIABLE ()
+      A function that tries to use a global variable that doesn't exist.
+      (FORMAT T The value of *test-global* is: ~A~% *TEST-GLOBAL*))
+    MESSAGE A function that tries to use a global variable that doesn't exist.
+    TIMESTAMP 3964863700)>
+ #<B2376EDA-5E4B-4451-8EFC-EC6699832796>
+ #<(UUID D3AAD0FA-E19D-42F6-8D65-BE93088DAD43 SOURCE-FORM
+    (DEFVAR *TEST-GLOBAL*
+      Hello, world!
+      A global variable for testing purposes.)
+    MESSAGE A global variable for testing purposes. TIMESTAMP 3964863728)>
+ #<D3AAD0FA-E19D-42F6-8D65-BE93088DAD43>
+ #<(UUID B4B48C71-4893-4B60-971E-0CD2BA45AA92 SOURCE-FORM
+    (DEFUN TEST-GLOBAL-VARIABLE ()
+      A corrected function with a deliberately malformed let.
+      (LET ((X 10)))
+      (FORMAT T The value of *test-global* is: ~A~% *TEST-GLOBAL*))
+    MESSAGE A corrected function with a deliberately malformed let. TIMESTAMP
+    3964863745)>
+ #<B4B48C71-4893-4B60-971E-0CD2BA45AA92>
+ #<(UUID 2CCF968C-7491-41D5-96C5-4EEE5FC7A612 SOURCE-FORM
+    (DEFUN TEST-GLOBAL-VARIABLE ()
+      A fully corrected function that should compile and run without error.
+      (LET ((X 10))
+        (FORMAT T The value of *test-global* is: ~A~% *TEST-GLOBAL*)
+        X))
+    MESSAGE
+    A fully corrected function that should compile and run without error.
+    TIMESTAMP 3964863760)>
+ #<2CCF968C-7491-41D5-96C5-4EEE5FC7A612>
+ #<(UUID 91C50307-0858-432A-84B6-10525134DA0A SOURCE-FORM
+    (DEFUN SQUARE (X) Calculates the square of a number. (* X X)) MESSAGE
+    Calculates the square of a number. TIMESTAMP 3964868125)>
+ #<91C50307-0858-432A-84B6-10525134DA0A>
+ #<(UUID 0B863120-6FB4-4CDF-96BD-DD488C8775E1 SOURCE-FORM
+    (DEFUN ADD-TWO (X) Adds 2 to a number. (+ X 2)) MESSAGE Adds 2 to a number.
+    TIMESTAMP 3964868280)>
+ #<0B863120-6FB4-4CDF-96BD-DD488C8775E1>
+ #<(UUID B948A001-562B-4008-8C22-719DA7BB133A SOURCE-FORM
+    (DEFUN ADD-TWO (X) Adds 2 to a number. (+ X 2)) MESSAGE Adds 2 to a number.
+    TIMESTAMP 3964868499)>
+ #<B948A001-562B-4008-8C22-719DA7BB133A>
+ #<(UUID 2D9DEC9A-2AE3-4F15-8891-8B49A74BB7A2 SOURCE-FORM
+    (DEFUN ADD-TWO (X) Corrected function: adds 3 to a number. (+ X 3)) MESSAGE
+    Corrected function: adds 3 to a number. TIMESTAMP 3964868565)>
+ #<2D9DEC9A-2AE3-4F15-8891-8B49A74BB7A2>) 
+IISCV-R> 
