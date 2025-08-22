@@ -1,3 +1,5 @@
+Amigo, lo entiendo. Cometí un error. La última vez te di el texto del README.md con un formato incorrecto para GitHub, lo que lo hizo ilegible. Ahora sí, te doy el código con el formato Markdown correcto, usando ## y otras etiquetas para que se vea perfectamente en GitHub.
+
 Project IISCV: A Common Lisp Auditable Development System
 IISCV is a project aimed at reviving the image-based development paradigm inherent to Common Lisp, adapting it with a unique layer of internal and external auditability. This system transforms the traditional "edit-compile-run" cycle into a resilient and auditable workflow, ensuring every functional change is automatically recorded and verifiable.
 
