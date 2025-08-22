@@ -39,7 +39,7 @@ The central philosophy that drives this system is **"debugging and development b
 
 ```bash
 git clone [https://github.com/gassechen/iiscv.git](https://github.com/gassechen/iiscv.git) quicklisp/local-projects/iiscv
-
+```
 
 ```lisp 
 IISCV> (iiscv-repl)
@@ -208,5 +208,33 @@ IISCV> (show-project-milestones)
   Timestamp: 3964880678
   Atomic Changes: (65652141-BADE-4FA3-A63B-9A04ED64DB3B)
 --------------------------------------------
+NIL
+IISCV> (audit-atomic-history)
+
+--- Atomic History Audit (Blockchain) ---
+
+* Atomic Commit: 7DE2102A-0B1F-4D78-A092-D6BEAA422846
+  Message: Adds 2 to a number.
+  Form: (DEFUN ADD-TWO (X) Adds 2 to a number. (+ X 2))
+  Timestamp: 3964880610
+
+* Atomic Commit: 825377BA-3EA8-4985-9A13-F49E9B2E3AD2
+  Message: Multiplies a number by two.
+  Form: (DEFUN MULTIPLY-BY-TWO (X) Multiplies a number by two. (* X 2))
+  Timestamp: 3964880629
+
+* Atomic Commit: B27EC5AB-0AB5-47D8-A82A-83F846FE6C22
+  Message: Subtracts one from a number.
+  Form: (DEFUN SUBTRACT-ONE (X) Subtracts one from a number. (- X 1))
+  Timestamp: 3964880641
+
+* Atomic Commit: 65652141-BADE-4FA3-A63B-9A04ED64DB3B
+  Message: Modified function: adds 2 to a number but first checks for non-negative input.
+  Form: (DEFUN ADD-TWO (X)
+          Modified function: adds 2 to a number but first checks for non-negative input.
+          (IF (>= X 0)
+              (+ X 2)
+              (ERROR Input must be non-negative.)))
+  Timestamp: 3964880668
 NIL
 IISCV> 
