@@ -127,7 +127,7 @@ NIL
 
 This is the core of the **auditable system**. The `audit-atomic-history` command gives you a view of every single **atomic commit** that has ever been made, in chronological order.  This is the **immutable, granular record** of all your work. It's what underpins the human-readable milestones and allows for complete auditability. Every `defun` or `defclass` is recorded here, along with its full source form and any code quality violations found at the time of the commit.
 
-
+```
 IISCV-R> (run-all-audits)
 
 Running all audits...
@@ -275,3 +275,4 @@ All audits completed.
 
 NIL 
 IISCV-R> 
+```
