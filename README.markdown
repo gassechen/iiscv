@@ -124,6 +124,71 @@ IISCV-R> (audit-atomic-history)
   ...
 NIL
 ```
+Step 8: Creating and Auditing a Class
+
+```
+
+IISCV-R> (defclass vehicle ()
+ ((make :accessor make :initarg :make :initform "Unknown")
+ (model :accessor model :initarg :model :initform "Unknown")))
+
+Violations detected: 2
+Use of non-portable, implementation-specific symbols detected in 'VEHICLE'.
+Symbol 'VEHICLE' is missing a docstring.
+
+#<STANDARD-CLASS IISCV::VEHICLE>
+```
+
+Here, you're defining a new class. Just like with functions, the system creates an atomic commit for this new definition. The linter, running its static analysis, flags two violations: the symbol VEHICLE is non-portable (a false positive for a user-defined symbol) and, importantly, the class is missing a docstring. The system correctly warns you about this code quality issue, but the class is successfully defined and ready to be used.
+
+Step 9: Creating an Instance and Committing It
+
+```
+
+IISCV-R> (defvar *my-car* (make-instance 'vehicle))
+
+Violations detected: 2
+Use of non-portable, implementation-specific symbols detected in '*MY-CAR*'.
+Symbol '*MY-CAR*' is missing a docstring.
+
+*MY-CAR*
+```
+You've now created a new variable to hold an instance of the vehicle class. This is also a top-level definition, so the system logs it as a new atomic commit with its own unique UUID. The linter again reports two violations: the variable name is considered non-portable, and it's also missing a docstring, another important best practice for code documentation.
+
+Step 10: Modifying an Instance (No Atomic Commit)
+
+```
+
+IISCV-R> (color *new-car*)
+"Not specified"
+IISCV-R> (setf (color *new-car*) "Red")
+"Red"
+IISCV-R> (color *new-car*)
+"Red"
+
+```
+Here, you are interacting with an instance of the class in memory. You first inspect the color slot and then use setf to change its value. The key takeaway here is that these actions do not create an atomic commit. The system tracks changes to the source code (defclass), not changes to the data within an object at runtime. This distinction is crucial to keep the history focused and manageable.
+
+Step 11: Grouping Class Changes in a Human Milestone
+```
+
+IISCV-R> (human-commit "Redefined vehicle class to add color slot and added a new instance." '(vehicle *new-car*))
+
+"D6017A7E-ADAB-48A1-B923-964C6BFA0C54"
+
+IISCV-R> (show-project-milestones)
+
+--- Project Milestones (Human History) ---
+...
+* Milestone: Redefined vehicle class to add color slot and added a new instance.
+ UUID: D6017A7E-ADAB-48A1-B923-964C6BFA0C54
+ Timestamp: 3965484015
+ Atomic Changes: (01F3AFE9-8472-4595-ABE4-A69E239D75EA 3078D22F-5055-4A94-9AB8-34EC58136478)
+--------------------------------------------
+NIL
+```
+You are now creating a new human milestone that groups the atomic commits for both the redefined vehicle class and the new *new-car* variable. This demonstrates how you can logically categorize changes in your project history. The output of show-project-milestones confirms that this new milestone successfully links to the UUIDs of both atomic commits, keeping your project's high-level history clean and well-documented.
+
 
 This is the core of the **auditable system**. The `audit-atomic-history` command gives you a view of every single **atomic commit** that has ever been made, in chronological order.  This is the **immutable, granular record** of all your work. It's what underpins the human-readable milestones and allows for complete auditability. Every `defun` or `defclass` is recorded here, along with its full source form and any code quality violations found at the time of the commit.
 
