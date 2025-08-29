@@ -1,5 +1,6 @@
 (uiop:define-package iiscv
-  (:use #:cl)
+  (:use #:cl #:LISA-LISP)
+  (:shadowing-import-from #:LISA-LISP #:assert) 
   (:export #:human-commit
            #:iiscv-repl
            #:*atomic-history-graph*
@@ -31,38 +32,286 @@
 (defvar *last-atomic-commit-uuid* nil
   "Reference to the UUID of the last atomic commit.")
 
-
 (defun make-atomic-commit (definition-form)
-  "Makes a new atomic commit from any definition form."
+  "Creates a new atomic commit and extracts all the data for the quality audit."
+  (setq *audit-violations* nil)
+  (lisa:reset)
+
   (let* ((name (and (listp definition-form) (second definition-form)))
-         (docstring-type (get-docstring-type definition-form))
-         (commit-message (and docstring-type (documentation name docstring-type)))
-         (commit-uuid (format nil "~a" (uuid:make-v4-uuid)))
-         ;; Aquí empaquetamos todos los datos en una sola lista de propiedades.
-         (commit-data `(:uuid ,commit-uuid
+         (docstring (get-docstring definition-form))
+         (has-docstring-p (not (null docstring)))
+         (body-length (calculate-body-length definition-form))
+         (cyclomatic-complexity (calculate-cyclomatic-complexity definition-form))
+         (magic-numbers (find-magic-numbers definition-form))
+         (unused-parameters (find-unused-parameters definition-form))
+         (is-redefining-core-symbol-p (is-redefining-core-symbol-p name))
+         (uses-unsafe-execution-p (find-unsafe-execution-forms definition-form))
+         (contains-heavy-consing-loop-p (contains-heavy-consing-loop-p definition-form))
+         (uses-implementation-specific-symbols-p (find-implementation-specific-symbols definition-form))
+         (commit-uuid (format nil "~a" (uuid:make-v4-uuid))))
+
+    ;; Run the analysis. The global variable will be populated.
+    (analyze-commit-and-assert
+     :uuid commit-uuid
+     :name name
+     :has-docstring-p has-docstring-p
+     :body-length body-length
+     :cyclomatic-complexity cyclomatic-complexity
+     :magic-numbers magic-numbers
+     :unused-parameters unused-parameters
+     :is-redefining-core-symbol-p is-redefining-core-symbol-p
+     :uses-unsafe-execution-p uses-unsafe-execution-p
+     :contains-heavy-consing-loop-p contains-heavy-consing-loop-p
+     :uses-implementation-specific-symbols-p uses-implementation-specific-symbols-p)
+
+    ;; Package all data, including LISA's results.
+    (let ((commit-data `(:uuid ,commit-uuid
                          :source-form ,definition-form
-                         :message ,(or commit-message "No docstring provided for this commit.")
-                         :timestamp ,(get-universal-time))))
-    
-    ;; 1. Add a vertex to the graph, con la lista de propiedades como su elemento.
-    (cl-graph:add-vertex *atomic-history-graph* commit-data)
+                         :symbol-name ,name
+                         :message ,(or docstring "No docstring provided for this commit.")
+                         :timestamp ,(get-universal-time)
+                         :rules-violations ,*audit-violations*)))
 
-    ;; 2. Add an edge (link) from the previous commit
-    (when *last-atomic-commit-uuid*
-      ;; Ahora necesitamos el UUID para el enlace, que está dentro de commit-data.
-      (cl-graph:add-edge-between-vertexes *atomic-history-graph* *last-atomic-commit-uuid* commit-uuid))
+      (cl-graph:add-vertex *atomic-history-graph* commit-data)
+      (when *last-atomic-commit-uuid*
+        (cl-graph:add-edge-between-vertexes *atomic-history-graph* *last-atomic-commit-uuid* commit-uuid))
+      (setf *last-atomic-commit-uuid* commit-uuid)
 
-    ;; 3. Update the global variables
-    (setf *last-atomic-commit-uuid* commit-uuid)
-    
-    ;; Guarda el UUID usando el nombre completo, si es una forma de definición.
-    (when name
-      (let ((fully-qualified-name (format nil "~A::~A" (package-name (symbol-package name)) (symbol-name name))))
-        (setf (gethash fully-qualified-name *function-to-uuid-map*) commit-uuid)))
-    (make-file-commit commit-uuid definition-form)
-    
-    commit-uuid))
+      (when name
+        (let ((fully-qualified-name (format nil "~A::~A" (package-name (symbol-package name)) (symbol-name name))))
+          (setf (gethash fully-qualified-name *function-to-uuid-map*) commit-uuid)))
 
+      (make-file-commit commit-uuid definition-form)
+
+      (format t "~%Violations detected: ~A~%" (length *audit-violations*))
+      (format t "~{~a~%~}" (mapcar #'car *audit-violations*))
+      commit-uuid)))
+
+
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;FOR RULES LISA AUDITOR;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defun get-body-forms (definition-form)
+  "Extracts the body from a definition form, correctly handling docstrings."
+  (cond ((and (listp definition-form)
+              (member (car definition-form) '(defun defmacro)))
+         (let ((body (cdddr definition-form)))
+           (if (and (listp body) (stringp (car body)))
+               (cdr body)
+               body)))
+        (t
+         nil)))
+
+
+
+(defun calculate-body-length (definition-form)
+  "Calculates the length of a function's body.
+   This is an approximation: it counts top-level forms."
+  (let ((body-forms (get-body-forms definition-form)))
+    (if body-forms
+        (length body-forms)
+        0)))
+
+
+
+(defun count-decision-points (form)
+  "Recursively traverses a form to count control structures
+   that increase cyclomatic complexity."
+  (let ((count 0))
+    (when (listp form)
+      (case (car form)
+        ((if when cond case loop dolist dolist-from-end)
+         (incf count)))
+      (dolist (subform (cdr form))
+        (incf count (count-decision-points subform))))
+    count))
+
+
+
+(defun calculate-cyclomatic-complexity (definition-form)
+  "Calculates the cyclomatic complexity of a function."
+  (let ((body (and (listp definition-form)
+                   (cddr definition-form))))
+    (when (and body (stringp (car body)))
+      (setf body (cdr body)))
+    
+    (+ 1 (count-decision-points body))))
+
+
+(defun find-magic-numbers (form)
+  "Recursively traverses a form to find literal numbers
+   other than 0 or 1 and returns a list of them."
+  (let ((found-numbers nil))
+    (labels ((scan (subform)
+               (cond ((listp subform)
+                      (dolist (item subform)
+                        (scan item)))
+                     ((and (numberp subform)
+                           (not (member subform '(0 1))))
+                      (push subform found-numbers)))))
+      (scan form)
+      (reverse found-numbers))))
+
+
+(defun find-unsafe-execution-forms (form)
+  "Recursively traverses a form to find symbols associated with unsafe
+   external command execution."
+  (let ((found-forms nil)
+        (unsafe-symbols '(uiop:run-program external-program:start)))
+    (labels ((scan (subform)
+               (when (listp subform)
+                 (let ((car-form (car subform)))
+                   ;; Check if the function call is one of the unsafe symbols
+                   (when (and (symbolp car-form)
+                              (member car-form unsafe-symbols))
+                     (push subform found-forms))
+                   ;; Continue scanning sub-forms
+                   (dolist (item (cdr subform))
+                     (scan item))))))
+      (scan form)
+      (reverse found-forms))))
+
+
+(defun contains-heavy-consing-loop-p (definition-form)
+  "Checks if a function definition contains heavy consing inside a loop."
+  (let ((consing-detected nil)
+        (consing-functions '(cons list list* make-array make-hash-table)))
+    (labels ((scan (form)
+               (when consing-detected
+                 (return-from scan))
+               (when (listp form)
+                 (let ((car-form (car form)))
+                   (when (member car-form '(loop dolist dotimes))
+                     ;; Now, scan the body of the loop for consing functions
+                     (dolist (item (cdr form))
+                       (when (and (listp item)
+                                  (member (car item) consing-functions))
+                         (setf consing-detected t)
+                         (return-from scan))))
+                   (dolist (item (cdr form))
+                     (scan item))))))
+      (scan definition-form)
+      consing-detected)))
+
+
+
+(defun find-implementation-specific-symbols (form)
+  "Recursively finds symbols that are not in a standard Common Lisp package."
+  (let ((found-symbols nil)
+        (standard-packages '(:common-lisp :keyword :cl-user :lisp :editor)))
+    (labels ((scan (subform)
+               (cond ((atom subform)
+                      (when (and (symbolp subform)
+                                 (not (keywordp subform)))
+                        (let* ((pkg (symbol-package subform))
+                               (pkg-name (and pkg (package-name pkg))))
+                          (when (and pkg
+                                     (not (member (intern (string-upcase pkg-name) :keyword)
+                                                  standard-packages)))
+                            (push subform found-symbols)))))
+                     ((listp subform)
+                      (dolist (item subform)
+                        (scan item))))))
+      (scan (cddr form))
+      (not (null found-symbols)))))
+      
+
+
+
+(defun find-unused-parameters (definition-form)
+  "Finds parameters in a function definition that are declared but not used."
+  (let* ((params (get-parameters-list definition-form))
+         (body (get-body-forms definition-form))
+         (used-symbols (find-used-symbols body))
+         (unused-params nil))
+    (dolist (param params)
+      (when (and (symbolp param)
+                 (not (gethash param used-symbols)))
+        (push param unused-params)))
+    (reverse unused-params)))
+
+
+(defun get-parameters-list (definition-form)
+  "Extracts the parameters list from a definition form."
+  (when (and (listp definition-form)
+             (member (car definition-form) '(defun defmacro)))
+    (third definition-form)))
+
+
+
+(defun find-unused-parameters (definition-form)
+  "Finds parameters in a function definition that are declared but not used."
+  (let* ((params (get-parameters-list definition-form))
+         (body (get-body-forms definition-form))
+         (used-symbols (find-used-symbols body))
+         (unused-params nil))
+    (dolist (param params)
+      (when (and (symbolp param)
+                 (not (gethash param used-symbols)))
+        (push param unused-params)))
+    (reverse unused-params)))
+
+(defun find-used-symbols (form)
+  "Recursively traverses a form to find and count all symbols used."
+  (let ((used-symbols (make-hash-table :test 'eq)))
+    (labels ((scan (subform)
+               (cond ((atom subform)
+                      (when (and (symbolp subform)
+                                 (not (keywordp subform)))
+                        (incf (gethash subform used-symbols 0))))
+                     ((listp subform)
+                      (dolist (item subform)
+                        (scan item))))))
+      (scan form)
+      used-symbols)))
+
+
+
+(defun get-docstring (definition-form)
+  "Extracts the docstring from a definition form, returning NIL if none exists."
+  (let ((docstring-candidate (nthcdr 2 definition-form)))
+    (loop for form in docstring-candidate
+          when (stringp form)
+            do (return form))))
+
+
+
+
+(defun is-redefining-core-symbol-p (name)
+  "Placeholder for a function to check for core symbol redefinition."
+  (declare (ignore name))
+  nil)
+
+
+(defun analyze-commit-and-assert (&key uuid name has-docstring-p body-length
+				    cyclomatic-complexity magic-numbers
+				    unused-parameters
+				    is-redefining-core-symbol-p
+				    uses-unsafe-execution-p
+				    contains-heavy-consing-loop-p
+				    uses-implementation-specific-symbols-p)
+  "Analiza los datos de un commit y aserta un hecho para el motor de inferencia LISA."
+  (setq *audit-violations* nil)
+  (lisa:reset)
+  (let ((fact-data
+          `(code-commit-analysis
+            (commit-uuid ,uuid)
+            (symbol-name ,name)
+            (body-length ,body-length)
+            (cyclomatic-complexity ,cyclomatic-complexity)
+            (magic-numbers ',magic-numbers)
+            (is-redefining-core-symbol-p ,is-redefining-core-symbol-p)
+            (uses-unsafe-execution-p ,uses-unsafe-execution-p)
+            (contains-heavy-consing-loop-p ,contains-heavy-consing-loop-p)
+            (has-docstring-p ,has-docstring-p)
+            (unused-parameters ,unused-parameters)
+            (uses-implementation-specific-symbols-p ,uses-implementation-specific-symbols-p))))
+    (eval `(lisa:assert ,fact-data)))
+  (lisa:run))
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (defvar *human-history-graph*
   (make-instance 'cl-graph:dot-graph)
@@ -72,7 +321,7 @@
   "Reference to the UUID of the last human-level commit.")
 
 
-(defun human-commit (message &rest symbols)
+(defun human-commit (message symbols &optional (file-path nil))
   "Creates a new human-level commit by linking to atomic commits.
    The message is human-readable, and the symbols link to the atomic history."
   (let* ((atomic-uuids (loop for sym in symbols
@@ -81,9 +330,10 @@
                              collect uuid))
          (commit-uuid (format nil "~a" (uuid:make-v4-uuid)))
          (commit-data `(:uuid ,commit-uuid
-                         :message ,message
-                         :atomic-uuids ,atomic-uuids
-                         :timestamp ,(get-universal-time))))
+                        :message ,message
+                        :atomic-uuids ,atomic-uuids
+                        :timestamp ,(get-universal-time)
+			:file-path,file-path)))
     
     ;; 1. Add a vertex to the human history graph
     (cl-graph:add-vertex *human-history-graph* commit-data)
@@ -94,8 +344,28 @@
 
     ;; 3. Update the global variable
     (setf *current-human-commit* commit-uuid)
+    ;;agregar para volvar las funciones a archivos opcional
+    ;;(when file-path
+    ;;  (let ((full-path (merge-pathnames (format nil "src/~A" file-path)
+    ;;                                     (asdf:system-source-directory :iiscv))))
+    ;;    (ensure-directories-exist full-path)
+    ;;    (with-open-file (stream full-path :direction :output :if-exists :supersede)
+    ;;      (format t "~%Writing human commit to file: ~A~%" full-path)
+    ;;      (dolist (atomic-uuid atomic-uuids)
+    ;;        (let* ((atomic-vertex (find-vertex-by-uuid *atomic-history-graph* atomic-uuid))
+    ;;               (atomic-data (when atomic-vertex (cl-graph:element atomic-vertex))))
+    ;;          (when atomic-data
+    ;;            (let ((source-form (getf atomic-data :source-form)))
+    ;;              (format stream "~%~S~%~%" source-form))))))))
+    ;; (format t "~%New human commit created with UUID: ~A~%" human-uuid)
+    ;;(human-commit "Added user authentication module"
+    ;;          '(make-db-connection check-password-validity authenticate-user)
+    ;;          "user-auth.lisp")
+
     
     commit-uuid))
+
+
 
 
 
@@ -135,20 +405,99 @@
 
 
 
-;; Helper function to get the correct documentation type
-(defun get-docstring-type (form)
-  "Returns the documentation type for a given definition form."
-  (case (car form)
-    (defun 'function)
-    (defmacro 'function)
-    (defvar 'variable)
-    (defparameter 'variable)
-    (defconstant 'variable)
-    (defclass 'type)
-    (defstruct 'type)
-    (ql:quickload 'dependency) 
-    (t nil)))
 
+
+;; Helper function to get the correct documentation type
+
+(defvar *commit-type-registry* (make-hash-table :test 'equal)
+  "A registry for associating Lisp forms with commit types.")
+
+(defun register-commit-type (form-name commit-type)
+  "Registers a new Lisp form name and its associated commit type."
+  (setf (gethash form-name *commit-type-registry*) commit-type))
+
+(defun get-docstring-type (form)
+  "Returns the documentation type for a given definition form from the registry."
+  (let ((form-name (and (listp form) (car form))))
+    (when form-name
+      (gethash form-name *commit-type-registry*))))
+
+
+(register-commit-type 'defun 'function)
+(register-commit-type 'defmacro 'function)
+(register-commit-type 'defvar 'variable)
+(register-commit-type 'defparameter 'variable)
+(register-commit-type 'defconstant 'variable)
+(register-commit-type 'defclass 'type)
+(register-commit-type 'defstruct 'type)
+(register-commit-type 'ql:quickload 'dependency)
+
+
+;; (defun get-docstring-type (form)
+;;   "Returns the documentation type for a given definition form."
+;;   (case (car form)
+;;     (defun 'function)
+;;     (defmacro 'function)
+;;     (defvar 'variable)
+;;     (defparameter 'variable)
+;;     (defconstant 'variable)
+;;     (defclass 'type)
+;;     (defstruct 'type)
+;;     (ql:quickload 'dependency) 
+;;     (t nil)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;;;Granular class actions
+
+(defun get-class-source-form (class-name)
+  "Retrieves the DEFCLASS form for a given class from the atomic history."
+  (let* ((uuid (gethash (format nil "~A::~A" (package-name (symbol-package class-name))
+                                (symbol-name class-name))
+                        *function-to-uuid-map*)))
+    (when uuid
+      (get-source-form-by-uuid uuid))))
+
+(defun find-slot-in-form (slot-name form)
+  "Finds and returns a slot definition from a DEFCLASS form."
+  (when (and (listp form) (eq (car form) 'defclass))
+    (find slot-name (nth 2 form) :key #'car)))
+
+(defun filter-slots-from-form (slot-name form)
+  "Removes a slot definition from a DEFCLASS form."
+  (when (and (listp form) (eq (car form) 'defclass))
+    (let ((slots (nth 2 form)))
+      (remove slot-name slots :key #'car))))
+
+(defmacro add-slot (class-name slot-definition)
+  "Adds a new slot to an existing class and commits the change."
+  `(let* ((current-form (get-class-source-form ,class-name)))
+     (unless current-form
+       (error "Class ~A not found in commit history." ,class-name))
+     (let* ((new-slots (append (nth 2 current-form) (list ,slot-definition)))
+            (new-form `(defclass ,(first (cdr current-form))
+                          ,(second (cadr current-form))
+                        ,new-slots)))
+       (eval new-form)
+       new-form)))
+
+(defmacro remove-slot (class-name slot-name)
+  "Removes a slot from an existing class and commits the change."
+  `(let* ((current-form (get-class-source-form ,class-name)))
+     (unless current-form
+       (error "Class ~A not found in commit history." ,class-name))
+     (let* ((new-slots (remove ,slot-name (nth 2 current-form) :key #'car))
+            (new-form `(defclass ,(first (cdr current-form))
+                          ,(second (cadr current-form))
+                        ,new-slots)))
+       (eval new-form)
+       new-form)))
+
+(register-commit-type 'add-slot 'slot-change)
+(register-commit-type 'remove-slot 'slot-change)
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 
 (defun get-source-form (function-name &key full-commit-p)
@@ -265,7 +614,8 @@
           (format t "~%* Atomic Commit: ~A~%" (getf data :uuid))
           (format t "  Message: ~A~%" (getf data :message))
           (format t "  Form: ~A~%" (getf data :source-form))
-          (format t "  Timestamp: ~A~%" (getf data :timestamp)))))))
+          (format t "  Timestamp: ~A~%" (getf data :timestamp))
+          (format t "  Violations detected: ~A~%" (mapcar #'car (getf data :rules-violations))))))))
 
 
 
@@ -302,216 +652,4 @@
             (rove:run-suite :iiscv))
           (format t "No audit files found in ~A~%" audit-dir))))
   (format t "All audits completed.~%"))
-
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-;; ;; Global variables to store the history and the current commit state.
-;; (defvar *history* (make-hash-table :test 'equal)
-;;   "Stores commits, with the hash as the key.")
-
-;; (defvar *current-commit* nil
-;;   "Reference to the hash of the last commit.")
-
-
-;; (defvar *function-to-uuid-map* (make-hash-table :test 'equal)
-;;   "Maps function names to their last committed UUID.")
-
-
-;; ;;; Helper function to get the correct documentation type
-;; (defun get-docstring-type (form)
-;;   "Returns the documentation type for a given definition form."
-;;   (case (car form)
-;;     (defun 'function)
-;;     (defmacro 'function)
-;;     (defvar 'variable)
-;;     (defparameter 'variable)
-;;     (defconstant 'variable)
-;;     (defclass 'type)
-;;     (defstruct 'type)
-;;     (t nil)))
-
-
-;; (defun get-function-lambda (function-name)
-;;   "Returns the lambda-form of a named function."
-;;   (macroexpand (list 'function function-name)))
-
-
-;; (defun make-commit (definition-form)
-;;   "Makes a new commit from any definition form."
-;;   (let* ((name (second definition-form))
-;;          (docstring-type (get-docstring-type definition-form))
-;;          (commit-message (and docstring-type
-;;                               (documentation name docstring-type)))
-;;          (commit-uuid (format nil "~a" (uuid:make-v4-uuid)))
-;;          (commit-data
-;;           (list :message (or commit-message "No docstring provided for this commit.")
-;;                 :changes (list (list name definition-form))
-;;                 :timestamp (get-universal-time)
-;;                 :parent *current-commit*))
-;;          ;; Construye la clave con el nombre completo.
-;;          (fully-qualified-name (format nil "~A::~A" (package-name (symbol-package name)) (symbol-name name))))
-    
-;;     (setf (gethash commit-uuid *history*) commit-data)
-;;     (setf *current-commit* commit-uuid)
-    
-;;     ;; Guarda el UUID usando el nombre completo.
-;;     (setf (gethash fully-qualified-name *function-to-uuid-map*) commit-uuid)
-    
-;;     (make-file-commit commit-uuid commit-data)
-;;     commit-uuid))
-
-
-;; (defun make-file-commit (commit-hash commit-data)
-;;   "Writes a Rove-compatible test file for a commit."
-;;   (let* ((filepath (merge-pathnames (format nil "audits/~A.lisp" commit-hash)
-;;                                     (asdf:system-source-directory :iiscv)))
-;;          (form (second (first (getf commit-data :changes)))))
-;;     (ensure-directories-exist filepath)
-;;     (print filepath) ; <-- Aquí está la línea de diagnóstico
-;;     (with-open-file (stream filepath :direction :output :if-exists :supersede)
-;;       (let ((*print-case* :downcase))
-;;         (format stream "~S" (make-rove-test-form commit-hash form))))))
-
-
-
-;; (defun make-rove-test-form (commit-hash form)
-;;   "Wraps a Lisp form in a Rove deftest form for auditing."
-;;   `(rove:deftest ,(intern (format nil "COMMIT-~A-TEST" commit-hash) "KEYWORD")
-;;     (rove:ok (eval ',form) "The form should evaluate without error.")))
-
-;; (defun hash-commit (commit)
-;;   "A placeholder for a cryptographic hash function. Returns a unique string."
-;;   (declare (ignore commit))
-;;   (format nil "~A" (random 100000)))
-
-;; (defun get-history ()
-;;   "Returns the entire history hash table."
-;;   *history*)
-
-;; (defun get-commit (commit-hash)
-;;   "Returns a commit object given its hash."
-;;   (gethash commit-hash *history*))
-
-;; (defun get-commit-form (commit-uuid)
-;;   "Retrieves the original Lisp form from a commit in the history."
-;;   (let* ((commit-data (gethash commit-uuid *history*)))
-;;     (unless commit-data
-;;       (format t "Error: Commit with UUID ~A not found in history.~%" commit-uuid)
-;;       (return-from get-commit-form nil))
-    
-;;     (second (first (getf commit-data :changes)))))
-
-
-;; (defun get-last-commit ()
-;;   "Returns the hash of the last commit."
-;;   (get-commit *current-commit*))
-
-
-
-;; (defun make-state-snapshot (symbol-list &key (message "Snapshot de estado de variables."))
-;;   "Takes a snapshot of the current state of a list of symbols and creates a commit."
-;;   (let ((state-forms '()))
-;;     (dolist (sym symbol-list)
-;;       (when (boundp sym)
-;;         (let* ((current-value (symbol-value sym))
-;;                (form `(setf ,sym ',current-value)))
-;;           (push form state-forms))))
-    
-;;     ;; Ahorraremos el snapshot como una forma de Lisp
-;;     (let* ((snapshot-data `(progn ,@state-forms))
-;;            (commit-data
-;;              (list :message message
-;;                    :changes (list (list :snapshot snapshot-data))
-;;                    :timestamp (get-universal-time)
-;;                    :parent *current-commit*))
-;;            (commit-hash (hash-commit commit-data)))
-;;       (setf (gethash commit-hash *history*) commit-data)
-;;       (setf *current-commit* commit-hash)
-;;       (make-file-commit commit-hash commit-data)
-;;       commit-hash)))
-
-;; (defun browse-history ()
-;;   "Displays all commits stored in the in-memory history."
-;;   (format t "~%--- History ---~%")
-;;   (maphash (lambda (hash commit)
-;;              (format t "Commit: ~A~%" hash)
-;;              (format t "  Parent: ~A~%" (getf commit :parent))
-;;              (format t "  Timestamp: ~A~%" (getf commit :timestamp))
-;;              (format t "  Message: ~A~%~%" (getf commit :message)))
-;;            *history*))
-
-
-;; (defun get-last-uuid-by-name (name-symbol)
-;;   "Returns the UUID of the last committed version of a function by its name."
-;;   (let* ((package-name (package-name (symbol-package name-symbol)))
-;;          (symbol-name (symbol-name name-symbol))
-;;          (search-key (format nil "~A::~A" package-name symbol-name)))
-;;     (gethash search-key *function-to-uuid-map*)))
-
-
-
-;; (defun iiscv-repl ()
-;;   "A REPL that automatically commits top-level definition forms."
-;;   (in-package :iiscv)
-;;   (let ((prompt (format nil "~A-R> " (package-name *package*))))
-;;     (loop
-;;       (format t "~%~A" prompt)
-;;       (let* ((form (read))
-;; 	     (doc-type (get-docstring-type form)))
-;; 	(let ((result (eval form))) ; <-- Evaluar la forma primero
-;; 	  (unless (eq result :no-print)
-;; 	    (print result)))
-;; 	(when doc-type
-;; 	  (print (make-commit form))))))) 
-
-
-;; (defun run-all-audits ()
-;;   "Runs all audit tests loaded into the system."
-;;   (rove:run-suite *package*))
-
-
-;; (defun dump-history-to-file (filename)
-;;   "Dumps the in-memory history hash table to a loadable Lisp file."
-;;   (let ((filepath (merge-pathnames filename (asdf:system-source-directory :iiscv))))
-;;     (format t "Dumping history to ~A...~%" filepath)
-;;     (with-open-file (stream filepath
-;;                             :direction :output
-;;                             :if-exists :supersede)
-;;       ;; Escribe la forma para inicializar la tabla hash.
-;;       (format stream "(setf *history* (make-hash-table :test 'equal))~%~%")
-;;       ;; Itera sobre la tabla hash y escribe cada entrada.
-;;       (maphash (lambda (uuid commit-data)
-;;                  (format stream "(setf (gethash \"~A\" *history*) '~S)~%"
-;;                          uuid
-;;                          commit-data))
-;;                *history*))))
-
-;; (defun load-history-from-file (filename)
-;;   "Loads a history dump file to restore the in-memory history hash table."
-;;   (let ((filepath (asdf:system-relative-pathname :iiscv filename)))
-;;     (format t "Loading history from ~A...~%" filepath)
-;;     (load filepath))
-;;   (format t "History loaded successfully.~%"))
-
-
-
-;; (defun rebuild-image-from-history ()
-;;   "Rebuilds the entire system by evaluating the code from each commit in the history."
-;;   (unless *history*
-;;     (format t "The history hash table is empty. Please load your history dump file first.~%")
-;;     (return-from rebuild-image-from-history nil))
-
-;;   (format t "Rebuilding image from history...~%")
-  
-;;   ;; This will evaluate the code form for each commit,
-;;   ;; effectively re-creating all functions and variables.
-;;   (maphash (lambda (uuid commit-data)
-;;              (declare (ignore uuid))
-;;              (let ((form (second (first (getf commit-data :changes)))))
-;;                (format t "Evaluating form from commit with message: ~A~%" (getf commit-data :message))
-;;                (eval form)))
-;;            *history*)
-;;   (format t "Image rebuild completed.~%"))
-
 
