@@ -1,4 +1,4 @@
-(rove/core/test:deftest :commit-9738e6aa-2d74-4e52-8a65-778115523ef0-test
+(rove/core/test:deftest :commit-9f4b02e0-2c69-433c-aaaa-abb5bd18baab-test
   (rove/core/assertion:ok
    (eval
     '(defun check-value (input-value)

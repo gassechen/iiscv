@@ -1,0 +1,214 @@
+#+TITLE: Documentación del Sistema iiscv
+
+* Documentación del Sistema iiscv
+
+=iiscv= es un sistema de control de versiones interactivo e introspectivo para Common Lisp. A diferencia de sistemas externos como =Git=, =iiscv= opera directamente dentro de la imagen de Lisp, capturando cada definición de función, macro, clase, etc., como un "commit atómico". Luego, permite agrupar estos commits atómicos en "commits humanos" más significativos, creando un historial dual: uno para la máquina (completo y detallado) y otro para los humanos (curado y legible).
+
+** Conceptos Principales y Variables Globales
+
+El sistema se basa en dos grafos de historial y una tabla hash para el seguimiento de símbolos.
+
+*** =*atomic-history-graph*=
+Un grafo que almacena cada cambio individual y atómico. Cada vez que se define o redefine una función, clase, etc., se crea un nuevo nodo (vértice) en este grafo. Funciona como un registro inmutable y completo de cada evaluación en el REPL.
+
+*** =*human-history-graph*=
+Un grafo de más alto nivel que almacena los "milestones" o hitos del proyecto. Un commit humano agrupa uno o más commits atómicos bajo un único mensaje descriptivo, similar a un commit en =Git=. Esto proporciona una vista curada y legible del progreso del proyecto.
+
+*** =*function-to-uuid-map*=
+Una tabla hash que mapea el nombre completo de un símbolo (ej: ="IISCV::MAKE-ATOMIC-COMMIT"=) a su *último* UUID de commit atómico. Esto permite encontrar rápidamente la versión más reciente de cualquier función o definición.
+
+-----
+
+** Creación de Commits
+
+Estas son las funciones centrales para registrar cambios en el sistema.
+
+*** =make-atomic-commit=
+#+BEGIN_SRC lisp
+(defun make-atomic-commit (definition-form))
+#+END_SRC
+
+Esta es la función principal del sistema. Se encarga de crear un *commit atómico* cada vez que se evalúa una nueva definición (=defun=, =defclass=, etc.).
+
+*Acciones que realiza:*
+1.  *Analiza el código*:: Extrae métricas y metadatos del =definition-form= (el código fuente de la definición), como la complejidad ciclomática, la presencia de docstrings, números mágicos, etc.
+2.  *Genera un UUID*:: Crea un identificador único universal (=UUID=) para este commit.
+3.  *Ejecuta auditorías*:: Llama a =analyze-commit-and-assert= para poblar la base de conocimiento del motor de inferencia =LISA= y detectar violaciones a las reglas de calidad.
+4.  *Crea el commit*:: Almacena el código fuente, el UUID, el timestamp y las violaciones detectadas en un =commit-data=.
+5.  *Actualiza el grafo*:: Agrega un nuevo vértice al =*atomic-history-graph*= con los datos del commit y lo enlaza con el commit atómico anterior.
+6.  *Actualiza el mapa de símbolos*:: Asocia el nombre de la función/símbolo con el nuevo UUID en =*function-to-uuid-map*=.
+7.  *Genera un archivo de auditoría*:: Llama a =make-file-commit= para crear un archivo de test con Rove, asegurando que la forma pueda ser evaluada sin errores en el futuro.
+
+*** =human-commit=
+#+BEGIN_SRC lisp
+(defun human-commit (message symbols &optional (file-path nil)))
+#+END_SRC
+
+Crea un *commit humano* de alto nivel. Es la función que el desarrollador usa para marcar un hito o un conjunto de cambios relacionados.
+
+*Parámetros:*
+- =message= :: Un string descriptivo del cambio, similar a un mensaje de commit en =Git=.
+- =symbols= :: Una lista de símbolos (ej: ='(mi-funcion mi-otra-funcion)=) cuyos últimos commits atómicos se agruparán bajo este commit humano.
+- =file-path= (opcional) :: Si se provee, puede usarse para volcar el código a un archivo (funcionalidad comentada en el código actual).
+
+*Acciones que realiza:*
+1.  Busca los UUIDs de los últimos commits atómicos para cada símbolo en la lista =symbols=.
+2.  Crea un nuevo UUID para el commit humano.
+3.  Agrega un vértice al =*human-history-graph*= que contiene el mensaje, la lista de UUIDs atómicos asociados y el timestamp.
+4.  Enlaza este nuevo commit humano con el anterior.
+
+-----
+
+** Interfaz de Usuario (REPL)
+
+*** =iiscv-repl=
+#+BEGIN_SRC lisp
+(defun iiscv-repl ())
+#+END_SRC
+
+Inicia un Read-Eval-Print-Loop (REPL) personalizado. Este REPL es el corazón de la interacción con el sistema.
+
+*Funcionamiento:*
+1.  Lee una forma de Lisp (=read=).
+2.  Evalúa la forma (=eval=).
+3.  *Verifica si es una definición*:: Usando =get-docstring-type=, determina si la forma es un =defun=, =defclass=, etc.
+4.  *Crea un commit atómico*:: Si es una definición registrada, llama automáticamente a =make-atomic-commit= con el código de la forma.
+5.  Imprime el resultado (=print=), a menos que sea =:no-print=.
+6.  Maneja errores de forma elegante para que el REPL no se detenga.
+
+-----
+
+** Consulta y Recuperación de Datos
+
+Estas funciones permiten buscar y obtener información del historial de commits.
+
+*** =get-last-uuid-by-name=
+#+BEGIN_SRC lisp
+(defun get-last-uuid-by-name (name-symbol))
+#+END_SRC
+Devuelve el UUID del commit atómico más reciente para un símbolo dado. Usa =*function-to-uuid-map*= para la búsqueda.
+
+*** =get-source-form-by-uuid=
+#+BEGIN_SRC lisp
+(defun get-source-form-by-uuid (uuid))
+#+END_SRC
+Dado un UUID, busca en el =*atomic-history-graph*= el commit correspondiente y devuelve su código fuente (=:source-form=).
+
+*** =get-source-form=
+#+BEGIN_SRC lisp
+(defun get-source-form (function-name &key full-commit-p))
+#+END_SRC
+Una función de conveniencia para obtener el código fuente de una función por su nombre (como un string). Si =full-commit-p= es =T=, devuelve toda la información del commit, no solo el código.
+
+*** =get-class-source-form=
+#+BEGIN_SRC lisp
+(defun get-class-source-form (class-name))
+#+END_SRC
+Especializada para clases, recupera la forma =defclass= original del historial atómico.
+
+-----
+
+** Manipulación Granular de Clases
+
+Estos macros permiten modificar clases existentes de forma programática, registrando cada cambio como un nuevo commit.
+
+*** =add-slot=
+#+BEGIN_SRC lisp
+(defmacro add-slot (class-name slot-definition))
+#+END_SRC
+Añade un nuevo slot a una clase existente.
+1.  Recupera la forma =defclass= actual de la clase desde el historial.
+2.  Construye una nueva forma =defclass= con el slot añadido.
+3.  Evalúa (=eval=) la nueva definición, lo que redefine la clase y (si se usa dentro del =iiscv-repl=) dispara un =make-atomic-commit= para la nueva versión de la clase.
+
+*** =remove-slot=
+#+BEGIN_SRC lisp
+(defmacro remove-slot (class-name slot-name))
+#+END_SRC
+Elimina un slot de una clase existente. Funciona de manera similar a =add-slot=, pero filtrando el slot a eliminar.
+
+-----
+
+** Visualización del Historial
+
+Funciones para inspeccionar los grafos de commits.
+
+*** =show-atomic-commit=
+#+BEGIN_SRC lisp
+(defun show-atomic-commit ())
+#+END_SRC
+Devuelve una lista de todos los vértices (commits) en el =*atomic-history-graph*=.
+
+*** =show-human-commit=
+#+BEGIN_SRC lisp
+(defun show-human-commit ())
+#+END_SRC
+Devuelve una lista de todos los vértices (commits) en el =*human-history-graph*=.
+
+*** =show-project-milestones=
+#+BEGIN_SRC lisp
+(defun show-project-milestones ())
+#+END_SRC
+Muestra una vista formateada y legible del historial humano, presentando cada commit con su mensaje, UUID y los cambios atómicos que agrupa.
+
+*** =audit-atomic-history=
+#+BEGIN_SRC lisp
+(defun audit-atomic-history ())
+#+END_SRC
+Muestra una vista detallada y completa del historial atómico, incluyendo el UUID de cada commit, su código fuente, y las violaciones de auditoría detectadas.
+
+-----
+
+** Reconstrucción del Sistema
+
+Permite regenerar el estado del sistema Lisp a partir del historial guardado.
+
+*** =rebuild-image-from-atomic-history=
+#+BEGIN_SRC lisp
+(defun rebuild-image-from-atomic-history ())
+#+END_SRC
+Recorre *todo* el historial atómico en orden cronológico (=topological-sort=) y evalúa cada =source-form=. Es una herramienta de recuperación total que restaura el sistema a su último estado, incluyendo cada paso intermedio.
+
+*** =rebuild-image-from-human-history=
+#+BEGIN_SRC lisp
+(defun rebuild-image-from-human-history ())
+#+END_SRC
+Recorre el historial humano y evalúa solo los commits atómicos que fueron explícitamente incluidos en los commits humanos. Esto permite una reconstrucción "limpia", ignorando código experimental o refactorizaciones intermedias que no llegaron a un hito.
+
+-----
+
+** Integración con Auditoría y Pruebas (Rove)
+
+El sistema se integra con la librería de testing =Rove= para crear una auditoría continua.
+
+*** =make-file-commit=
+#+BEGIN_SRC lisp
+(defun make-file-commit (commit-uuid form))
+#+END_SRC
+Para cada commit atómico, esta función crea un archivo =.lisp= en el directorio =audits/=. El archivo contiene un test de Rove (=deftest=) que simplemente verifica que el código (=form=) del commit se puede evaluar sin errores.
+
+*** =run-all-audits=
+#+BEGIN_SRC lisp
+(defun run-all-audits ())
+#+END_SRC
+Busca y carga todos los archivos de auditoría generados por =make-file-commit= y luego ejecuta la suite de tests de Rove. Esto asegura que todos los commits en la historia siguen siendo válidos y ejecutables.
+
+-----
+
+** Funciones de Ayuda (Helpers)
+
+*** =get-docstring-type= / =register-commit-type=
+#+BEGIN_SRC lisp
+(defun get-docstring-type (form))
+(defun register-commit-type (form-name commit-type))
+#+END_SRC
+Un sistema de registro simple para que =iiscv-repl= sepa qué tipos de formas deben ser tratadas como commits (ej: =defun=, =defvar=, =defclass=). =register-commit-type= añade una forma al registro y =get-docstring-type= la consulta.
+
+*** =find-vertex-by-uuid=
+#+BEGIN_SRC lisp
+(defun find-vertex-by-uuid (graph uuid))
+#+END_SRC
+Una función de utilidad que itera sobre los vértices de un grafo (=cl-graph=) para encontrar uno que coincida con un UUID específico.
+
+
+

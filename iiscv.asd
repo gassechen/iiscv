@@ -6,7 +6,8 @@
   :components ((:module "src"
                 :components
                 ((:file "main")
-		 (:file "lisa-rules"))))
+		 (:file "lisa-rules")
+		 (:file "lisa-rules-aux-fn"))))
   :description ""
   :in-order-to ((test-op (test-op "iiscv/tests"))))
 

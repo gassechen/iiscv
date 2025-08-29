@@ -1,28 +1,27 @@
+;;; main.lisp
 (uiop:define-package iiscv
   (:use #:cl #:LISA-LISP)
-  (:shadowing-import-from #:LISA-LISP #:assert) 
+  (:shadowing-import-from #:LISA-LISP #:assert)
   (:export #:human-commit
            #:iiscv-repl
            #:*atomic-history-graph*
            #:*human-history-graph*
-           ;; Las siguientes son las funciones que tenías, las mantendremos por ahora
-           ;;#:get-history
-           ;;#:get-commit
-           ;;#:get-last-commit
-           ;;#:make-state-snapshot
-           ;;#:get-commit-form
-           ;;#:get-last-uuid-by-name
-           ;;#:dump-history-to-file
-           ;;#:load-history-from-file
-           ;;#:rebuild-image-from-history
-           ;;#:run-all-audits
-	   ))
-
+           #:make-atomic-commit
+           #:analyze-commit-and-assert
+           #:get-last-uuid-by-name
+           #:get-source-form-by-uuid
+           #:rebuild-image-from-human-history
+           #:rebuild-image-from-atomic-history
+           #:show-atomic-commit
+           #:show-human-commit
+           #:show-project-milestones
+           #:audit-atomic-history
+           #:run-all-audits))
 
 (in-package #:iiscv)
 
 (defvar *function-to-uuid-map* (make-hash-table :test 'equal)
-   "Maps function names to their last committed UUID.")
+  "Maps function names to their last committed UUID.")
 
 
 (defvar *atomic-history-graph*
@@ -90,226 +89,6 @@
 
 
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;FOR RULES LISA AUDITOR;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-(defun get-body-forms (definition-form)
-  "Extracts the body from a definition form, correctly handling docstrings."
-  (cond ((and (listp definition-form)
-              (member (car definition-form) '(defun defmacro)))
-         (let ((body (cdddr definition-form)))
-           (if (and (listp body) (stringp (car body)))
-               (cdr body)
-               body)))
-        (t
-         nil)))
-
-
-
-(defun calculate-body-length (definition-form)
-  "Calculates the length of a function's body.
-   This is an approximation: it counts top-level forms."
-  (let ((body-forms (get-body-forms definition-form)))
-    (if body-forms
-        (length body-forms)
-        0)))
-
-
-
-(defun count-decision-points (form)
-  "Recursively traverses a form to count control structures
-   that increase cyclomatic complexity."
-  (let ((count 0))
-    (when (listp form)
-      (case (car form)
-        ((if when cond case loop dolist dolist-from-end)
-         (incf count)))
-      (dolist (subform (cdr form))
-        (incf count (count-decision-points subform))))
-    count))
-
-
-
-(defun calculate-cyclomatic-complexity (definition-form)
-  "Calculates the cyclomatic complexity of a function."
-  (let ((body (and (listp definition-form)
-                   (cddr definition-form))))
-    (when (and body (stringp (car body)))
-      (setf body (cdr body)))
-    
-    (+ 1 (count-decision-points body))))
-
-
-(defun find-magic-numbers (form)
-  "Recursively traverses a form to find literal numbers
-   other than 0 or 1 and returns a list of them."
-  (let ((found-numbers nil))
-    (labels ((scan (subform)
-               (cond ((listp subform)
-                      (dolist (item subform)
-                        (scan item)))
-                     ((and (numberp subform)
-                           (not (member subform '(0 1))))
-                      (push subform found-numbers)))))
-      (scan form)
-      (reverse found-numbers))))
-
-
-(defun find-unsafe-execution-forms (form)
-  "Recursively traverses a form to find symbols associated with unsafe
-   external command execution."
-  (let ((found-forms nil)
-        (unsafe-symbols '(uiop:run-program external-program:start)))
-    (labels ((scan (subform)
-               (when (listp subform)
-                 (let ((car-form (car subform)))
-                   ;; Check if the function call is one of the unsafe symbols
-                   (when (and (symbolp car-form)
-                              (member car-form unsafe-symbols))
-                     (push subform found-forms))
-                   ;; Continue scanning sub-forms
-                   (dolist (item (cdr subform))
-                     (scan item))))))
-      (scan form)
-      (reverse found-forms))))
-
-
-(defun contains-heavy-consing-loop-p (definition-form)
-  "Checks if a function definition contains heavy consing inside a loop."
-  (let ((consing-detected nil)
-        (consing-functions '(cons list list* make-array make-hash-table)))
-    (labels ((scan (form)
-               (when consing-detected
-                 (return-from scan))
-               (when (listp form)
-                 (let ((car-form (car form)))
-                   (when (member car-form '(loop dolist dotimes))
-                     ;; Now, scan the body of the loop for consing functions
-                     (dolist (item (cdr form))
-                       (when (and (listp item)
-                                  (member (car item) consing-functions))
-                         (setf consing-detected t)
-                         (return-from scan))))
-                   (dolist (item (cdr form))
-                     (scan item))))))
-      (scan definition-form)
-      consing-detected)))
-
-
-
-(defun find-implementation-specific-symbols (form)
-  "Recursively finds symbols that are not in a standard Common Lisp package."
-  (let ((found-symbols nil)
-        (standard-packages '(:common-lisp :keyword :cl-user :lisp :editor)))
-    (labels ((scan (subform)
-               (cond ((atom subform)
-                      (when (and (symbolp subform)
-                                 (not (keywordp subform)))
-                        (let* ((pkg (symbol-package subform))
-                               (pkg-name (and pkg (package-name pkg))))
-                          (when (and pkg
-                                     (not (member (intern (string-upcase pkg-name) :keyword)
-                                                  standard-packages)))
-                            (push subform found-symbols)))))
-                     ((listp subform)
-                      (dolist (item subform)
-                        (scan item))))))
-      (scan (cddr form))
-      (not (null found-symbols)))))
-      
-
-
-
-(defun find-unused-parameters (definition-form)
-  "Finds parameters in a function definition that are declared but not used."
-  (let* ((params (get-parameters-list definition-form))
-         (body (get-body-forms definition-form))
-         (used-symbols (find-used-symbols body))
-         (unused-params nil))
-    (dolist (param params)
-      (when (and (symbolp param)
-                 (not (gethash param used-symbols)))
-        (push param unused-params)))
-    (reverse unused-params)))
-
-
-(defun get-parameters-list (definition-form)
-  "Extracts the parameters list from a definition form."
-  (when (and (listp definition-form)
-             (member (car definition-form) '(defun defmacro)))
-    (third definition-form)))
-
-
-
-(defun find-unused-parameters (definition-form)
-  "Finds parameters in a function definition that are declared but not used."
-  (let* ((params (get-parameters-list definition-form))
-         (body (get-body-forms definition-form))
-         (used-symbols (find-used-symbols body))
-         (unused-params nil))
-    (dolist (param params)
-      (when (and (symbolp param)
-                 (not (gethash param used-symbols)))
-        (push param unused-params)))
-    (reverse unused-params)))
-
-(defun find-used-symbols (form)
-  "Recursively traverses a form to find and count all symbols used."
-  (let ((used-symbols (make-hash-table :test 'eq)))
-    (labels ((scan (subform)
-               (cond ((atom subform)
-                      (when (and (symbolp subform)
-                                 (not (keywordp subform)))
-                        (incf (gethash subform used-symbols 0))))
-                     ((listp subform)
-                      (dolist (item subform)
-                        (scan item))))))
-      (scan form)
-      used-symbols)))
-
-
-
-(defun get-docstring (definition-form)
-  "Extracts the docstring from a definition form, returning NIL if none exists."
-  (let ((docstring-candidate (nthcdr 2 definition-form)))
-    (loop for form in docstring-candidate
-          when (stringp form)
-            do (return form))))
-
-
-
-
-(defun is-redefining-core-symbol-p (name)
-  "Placeholder for a function to check for core symbol redefinition."
-  (declare (ignore name))
-  nil)
-
-
-(defun analyze-commit-and-assert (&key uuid name has-docstring-p body-length
-				    cyclomatic-complexity magic-numbers
-				    unused-parameters
-				    is-redefining-core-symbol-p
-				    uses-unsafe-execution-p
-				    contains-heavy-consing-loop-p
-				    uses-implementation-specific-symbols-p)
-  "Analiza los datos de un commit y aserta un hecho para el motor de inferencia LISA."
-  (setq *audit-violations* nil)
-  (lisa:reset)
-  (let ((fact-data
-          `(code-commit-analysis
-            (commit-uuid ,uuid)
-            (symbol-name ,name)
-            (body-length ,body-length)
-            (cyclomatic-complexity ,cyclomatic-complexity)
-            (magic-numbers ',magic-numbers)
-            (is-redefining-core-symbol-p ,is-redefining-core-symbol-p)
-            (uses-unsafe-execution-p ,uses-unsafe-execution-p)
-            (contains-heavy-consing-loop-p ,contains-heavy-consing-loop-p)
-            (has-docstring-p ,has-docstring-p)
-            (unused-parameters ,unused-parameters)
-            (uses-implementation-specific-symbols-p ,uses-implementation-specific-symbols-p))))
-    (eval `(lisa:assert ,fact-data)))
-  (lisa:run))
-
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -327,7 +106,7 @@
   (let* ((atomic-uuids (loop for sym in symbols
                              for uuid = (get-last-uuid-by-name sym)
                              when uuid
-                             collect uuid))
+                               collect uuid))
          (commit-uuid (format nil "~a" (uuid:make-v4-uuid)))
          (commit-data `(:uuid ,commit-uuid
                         :message ,message
@@ -404,9 +183,6 @@
         (format t "Error: Commit with UUID ~A not found in atomic history.~%" uuid))))
 
 
-
-
-
 ;; Helper function to get the correct documentation type
 
 (defvar *commit-type-registry* (make-hash-table :test 'equal)
@@ -433,22 +209,7 @@
 (register-commit-type 'ql:quickload 'dependency)
 
 
-;; (defun get-docstring-type (form)
-;;   "Returns the documentation type for a given definition form."
-;;   (case (car form)
-;;     (defun 'function)
-;;     (defmacro 'function)
-;;     (defvar 'variable)
-;;     (defparameter 'variable)
-;;     (defconstant 'variable)
-;;     (defclass 'type)
-;;     (defstruct 'type)
-;;     (ql:quickload 'dependency) 
-;;     (t nil)))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-;;;Granular class actions
+;;;;;;;;;; Granular class actions;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (defun get-class-source-form (class-name)
   "Retrieves the DEFCLASS form for a given class from the atomic history."
@@ -476,8 +237,8 @@
        (error "Class ~A not found in commit history." ,class-name))
      (let* ((new-slots (append (nth 2 current-form) (list ,slot-definition)))
             (new-form `(defclass ,(first (cdr current-form))
-                          ,(second (cadr current-form))
-                        ,new-slots)))
+                           ,(second (cadr current-form))
+                         ,new-slots)))
        (eval new-form)
        new-form)))
 
@@ -488,8 +249,8 @@
        (error "Class ~A not found in commit history." ,class-name))
      (let* ((new-slots (remove ,slot-name (nth 2 current-form) :key #'car))
             (new-form `(defclass ,(first (cdr current-form))
-                          ,(second (cadr current-form))
-                        ,new-slots)))
+                           ,(second (cadr current-form))
+                         ,new-slots)))
        (eval new-form)
        new-form)))
 
@@ -521,12 +282,12 @@
   "Finds and returns a vertex in a graph by its UUID."
   (let ((found-vertex nil))
     (cl-graph:iterate-vertexes graph
-      (lambda (v)
-        (let ((vertex-data (cl-graph:element v)))
-          (when (and (listp vertex-data)
-                     (stringp (getf vertex-data :UUID))
-                     (string= (getf vertex-data :UUID) uuid))
-            (setf found-vertex v)))))
+			       (lambda (v)
+				 (let ((vertex-data (cl-graph:element v)))
+				   (when (and (listp vertex-data)
+					      (stringp (getf vertex-data :UUID))
+					      (string= (getf vertex-data :UUID) uuid))
+				     (setf found-vertex v)))))
     found-vertex))
 
 
@@ -581,7 +342,7 @@
             (eval form)
           (error (e)
             (format t "~%Error evaluating commit ~A: ~A~%" (getf commit-data :uuid) e)))))
-  (format t "Reconstruction of image completed.~%")))
+    (format t "Reconstruction of image completed.~%")))
 
 
 (defun get-data-from-vertex (vertex)
