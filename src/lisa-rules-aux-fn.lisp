@@ -107,11 +107,10 @@
       consing-detected)))
 
 
-
 (defun find-implementation-specific-symbols (form)
-  "Recursively finds symbols that are not in a standard Common Lisp package."
+  "Recursively finds symbols that are not in a standard Common Lisp or project package."
   (let ((found-symbols nil)
-        (standard-packages '(:common-lisp :keyword :cl-user :lisp :editor)))
+        (standard-packages '(:common-lisp :keyword :cl-user :lisp :editor :iiscv)))
     (labels ((scan (subform)
                (cond ((atom subform)
                       (when (and (symbolp subform)
@@ -125,9 +124,8 @@
                      ((listp subform)
                       (dolist (item subform)
                         (scan item))))))
-      (scan (cddr form))
+      (scan form)
       (not (null found-symbols)))))
-      
 
 
 
@@ -194,6 +192,24 @@
   "Placeholder for a function to check for core symbol redefinition."
   (declare (ignore name))
   nil)
+
+
+
+
+(defun check-implementation-specific-symbols-for (symbol-name)
+  "Checks if a symbol is likely implementation-specific by its name prefix."
+  (let ((prefixes '("SB-" "ECL-" "CCL-" "ALLEGRO-" "LISPWORKS-" "CLISP-" "CMUCL-" "ABCL-")))
+    (loop for prefix in prefixes
+          thereis (string-starts-with-p prefix (string-upcase symbol-name)))))
+
+
+(defun string-starts-with-p (prefix string)
+  "Helper function to check if a string starts with a given prefix."
+  (and (>= (length string) (length prefix))
+       (string= prefix string :end2 (length prefix))))
+
+
+
 
 
 (defun analyze-commit-and-assert (&key uuid name has-docstring-p body-length

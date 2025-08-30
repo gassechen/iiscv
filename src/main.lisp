@@ -46,7 +46,7 @@
          (is-redefining-core-symbol-p (is-redefining-core-symbol-p name))
          (uses-unsafe-execution-p (find-unsafe-execution-forms definition-form))
          (contains-heavy-consing-loop-p (contains-heavy-consing-loop-p definition-form))
-         (uses-implementation-specific-symbols-p (find-implementation-specific-symbols definition-form))
+	 (uses-implementation-specific-symbols-p (find-implementation-specific-symbols definition-form))
          (commit-uuid (format nil "~a" (uuid:make-v4-uuid))))
 
     ;; Run the analysis. The global variable will be populated.
