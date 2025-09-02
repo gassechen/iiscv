@@ -20,6 +20,8 @@
 
 (in-package #:iiscv)
 
+
+
 (defvar *function-to-uuid-map* (make-hash-table :test 'equal)
   "Maps function names to their last committed UUID.")
 
@@ -36,17 +38,20 @@
   (setq *audit-violations* nil)
   (lisa:reset)
 
-  (let* ((name (and (listp definition-form) (second definition-form)))
+  (let* ((name-form (and (listp definition-form) (second definition-form)))
+         (name (if (symbolp name-form)
+                   name-form
+                   (princ-to-string name-form)))
          (docstring (get-docstring definition-form))
          (has-docstring-p (not (null docstring)))
          (body-length (calculate-body-length definition-form))
          (cyclomatic-complexity (calculate-cyclomatic-complexity definition-form))
          (magic-numbers (find-magic-numbers definition-form))
          (unused-parameters (find-unused-parameters definition-form))
-         (is-redefining-core-symbol-p (is-redefining-core-symbol-p name))
+         (is-redefining-core-symbol-p (and (symbolp name) (is-redefining-core-symbol-p name)))
          (uses-unsafe-execution-p (find-unsafe-execution-forms definition-form))
          (contains-heavy-consing-loop-p (contains-heavy-consing-loop-p definition-form))
-	 (uses-implementation-specific-symbols-p (find-implementation-specific-symbols definition-form))
+         (uses-implementation-specific-symbols-p (find-implementation-specific-symbols definition-form))
          (commit-uuid (format nil "~a" (uuid:make-v4-uuid))))
 
     ;; Run the analysis. The global variable will be populated.
@@ -76,7 +81,7 @@
         (cl-graph:add-edge-between-vertexes *atomic-history-graph* *last-atomic-commit-uuid* commit-uuid))
       (setf *last-atomic-commit-uuid* commit-uuid)
 
-      (when name
+      (when (symbolp name)
         (let ((fully-qualified-name (format nil "~A::~A" (package-name (symbol-package name)) (symbol-name name))))
           (setf (gethash fully-qualified-name *function-to-uuid-map*) commit-uuid)))
 
@@ -85,7 +90,6 @@
       (format t "~%Violations detected: ~A~%" (length *audit-violations*))
       (format t "~{~a~%~}" (mapcar #'car *audit-violations*))
       commit-uuid)))
-
 
 
 
@@ -145,9 +149,6 @@
     commit-uuid))
 
 
-
-
-
 (defun iiscv-repl ()
   "A REPL that automatically commits top-level definition forms and handles errors gracefully."
   (in-package :iiscv)
@@ -155,15 +156,53 @@
     (loop
       (format t "~%~A" prompt)
       (handler-case
-          (let* ((form (read)))
-            (let ((result (eval form)))
-              (when (get-docstring-type form)
-                (make-atomic-commit form))
-              (unless (eq result :no-print)
-                (print result))))
+          (let* ((form (read))
+                 (form-name (and (listp form) (car form))))
+            (cond ((equal form-name 'load)
+                   (when (get-commit-type form)
+                     (make-atomic-commit form))
+                   (apply #'iiscv-load (rest form)))
+                  (t
+                   (let ((result (eval form)))
+                     (when (get-commit-type form)
+                       (make-atomic-commit form))
+                     (unless (eq result :no-print)
+                       (print result))))))
         (error (e)
           (format t "~%Error: ~A~%" e)
           (format t "~%Resuming "))))))
+
+(defun iiscv-load (filename)
+  "Loads a .lisp file, auditing and committing each top-level definition."
+  (in-package :iiscv)
+  (with-open-file (stream filename)
+    (loop
+      (let ((form (read stream nil :eof)))
+        (if (eq form :eof)
+            (return)
+            (progn
+              (when (get-commit-type form)
+                (make-atomic-commit form))
+              (eval form))))))
+  (format t "~%File '~A' loaded and audited successfully.~%" filename))
+
+
+;; (defun iiscv-repl ()
+;;   "A REPL that automatically commits top-level definition forms and handles errors gracefully."
+;;   (in-package :iiscv)
+;;   (let ((prompt (format nil "~A-R> " (package-name *package*))))
+;;     (loop
+;;       (format t "~%~A" prompt)
+;;       (handler-case
+;;           (let* ((form (read)))
+;;             (let ((result (eval form)))
+;;               (when (get-commit-type form)
+;;                 (make-atomic-commit form))
+;;               (unless (eq result :no-print)
+;;                 (print result))))
+;;         (error (e)
+;;           (format t "~%Error: ~A~%" e)
+;;           (format t "~%Resuming "))))))
 
 
 
@@ -192,8 +231,8 @@
   "Registers a new Lisp form name and its associated commit type."
   (setf (gethash form-name *commit-type-registry*) commit-type))
 
-(defun get-docstring-type (form)
-  "Returns the documentation type for a given definition form from the registry."
+(defun get-commit-type  (form)
+    "Returns the commit type for a given definition form from the registry."
   (let ((form-name (and (listp form) (car form))))
     (when form-name
       (gethash form-name *commit-type-registry*))))
@@ -413,4 +452,8 @@
             (rove:run-suite :iiscv))
           (format t "No audit files found in ~A~%" audit-dir))))
   (format t "All audits completed.~%"))
+
+
+
+;;; main;;;;;;
 
