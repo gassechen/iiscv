@@ -118,7 +118,58 @@
   "Reference to the UUID of the last human-level commit.")
 
 
-(defun human-commit (message symbols &optional (file-path nil))
+
+
+
+(defun get-timestamp-of-last-human-commit ()
+  "Devuelve la marca de tiempo del último commit humano, o 0 si no existen."
+  (if *current-human-commit*
+      (let* ((vertex (find-vertex-by-uuid *human-history-graph* *current-human-commit*))
+             (data (when vertex (cl-graph:element vertex))))
+        ;; Aseguramos que `data` es una lista y luego accedemos a la propiedad
+        (when (and (listp data) (getf data :timestamp))
+          (getf data :timestamp)))
+      0))
+
+
+(defun make-human-commit (message &optional (file-path nil))
+  "Creates a new human-level commit by automatically finding recent definitions
+   and linking them to the atomic history."
+  (let* ((all-symbols (cl-graph:vertexes *atomic-history-graph*))
+         (last-commit-time (get-timestamp-of-last-human-commit))
+         (recent-symbols (loop for vertex in all-symbols
+			       for data = (cl-graph:element vertex)
+			       when (and (listp data)           
+					 (evenp (length data))  
+					 (getf data :timestamp)
+					 (> (getf data :timestamp) last-commit-time))
+				 collect (getf data :symbol-name)))
+	 
+         (unique-symbols (remove-duplicates recent-symbols :test #'equal)))
+
+    (let* ((atomic-uuids (loop for sym in unique-symbols
+                               for uuid = (get-last-uuid-by-name sym)
+                               when uuid
+                                 collect uuid))
+           (commit-uuid (format nil "~a" (uuid:make-v4-uuid)))
+           (commit-data `(:uuid ,commit-uuid
+                           :message ,message
+                           :atomic-uuids ,atomic-uuids
+                           :timestamp ,(get-universal-time)
+                           :file-path ,file-path)))
+
+      (cl-graph:add-vertex *human-history-graph* commit-data)
+      (when *current-human-commit*
+        (cl-graph:add-edge-between-vertexes *human-history-graph* *current-human-commit* commit-uuid))
+
+      (setf *current-human-commit* commit-uuid)
+      
+      (format t "~%New human commit created for symbols: ~A~%" unique-symbols)
+      commit-uuid)))
+
+
+
+(defun manual-human-commit (message symbols &optional (file-path nil))
   "Creates a new human-level commit by linking to atomic commits.
    The message is human-readable, and the symbols link to the atomic history."
   (let* ((atomic-uuids (loop for sym in symbols
@@ -141,25 +192,6 @@
 
     ;; 3. Update the global variable
     (setf *current-human-commit* commit-uuid)
-    ;;agregar para volvar las funciones a archivos opcional
-    ;;(when file-path
-    ;;  (let ((full-path (merge-pathnames (format nil "src/~A" file-path)
-    ;;                                     (asdf:system-source-directory :iiscv))))
-    ;;    (ensure-directories-exist full-path)
-    ;;    (with-open-file (stream full-path :direction :output :if-exists :supersede)
-    ;;      (format t "~%Writing human commit to file: ~A~%" full-path)
-    ;;      (dolist (atomic-uuid atomic-uuids)
-    ;;        (let* ((atomic-vertex (find-vertex-by-uuid *atomic-history-graph* atomic-uuid))
-    ;;               (atomic-data (when atomic-vertex (cl-graph:element atomic-vertex))))
-    ;;          (when atomic-data
-    ;;            (let ((source-form (getf atomic-data :source-form)))
-    ;;              (format stream "~%~S~%~%" source-form))))))))
-    ;; (format t "~%New human commit created with UUID: ~A~%" human-uuid)
-    ;;(human-commit "Added user authentication module"
-    ;;          '(make-db-connection check-password-validity authenticate-user)
-    ;;          "user-auth.lisp")
-
-    
     commit-uuid))
 
 (defun iiscv-repl ()
