@@ -51,19 +51,47 @@
     (+ 1 (count-decision-points body))))
 
 
+;; (defun find-magic-numbers (form)
+;;   "Recursively traverses a form to find literal numbers
+;;    other than 0 or 1 and returns a list of them."
+;;   (let ((found-numbers nil))
+;;     (labels ((scan (subform)
+;;                (cond ((listp subform)
+;;                       (dolist (item subform)
+;;                         (scan item)))
+;;                      ((and (numberp subform)
+;;                            (not (member subform '(0 1))))
+;;                       (push subform found-numbers)))))
+;;       (scan form)
+;;       (reverse found-numbers))))
+
+
 (defun find-magic-numbers (form)
-  "Recursively traverses a form to find literal numbers
-   other than 0 or 1 and returns a list of them."
+  "Finds and returns a list of magic numbers in a Lisp form."
   (let ((found-numbers nil))
     (labels ((scan (subform)
-               (cond ((listp subform)
-                      (dolist (item subform)
-                        (scan item)))
-                     ((and (numberp subform)
-                           (not (member subform '(0 1))))
-                      (push subform found-numbers)))))
+               (cond ((numberp subform)
+                      (push subform found-numbers))
+                     ((listp subform)
+                      ;; Check for DEFEUN, DEFMACRO, etc.
+                      (let ((form-type (car subform)))
+                        (when (eq form-type 'defun)
+                          ;; Scan the body of the function
+                          (dolist (item (cddr subform))
+                            (scan item)))
+                        (when (eq form-type 'defconstant)
+                          ;; Do not scan the number in a defconstant
+                          (return-from scan nil))
+                        (when (eq form-type 'defvar)
+                          ;; Do not scan the value of a defvar
+                          (return-from scan nil))
+                        ;; Recursively scan the rest of the list
+                        (dolist (item (cdr subform))
+                          (scan item)))))))
       (scan form)
-      (reverse found-numbers))))
+      (when found-numbers
+        (list found-numbers)))))
+
 
 
 (defun find-unsafe-execution-forms (form)
@@ -107,10 +135,31 @@
       consing-detected)))
 
 
+;; (defun find-implementation-specific-symbols (form)
+;;   "Recursively finds symbols that are not in a standard Common Lisp or project package."
+;;   (let ((found-symbols nil)
+;;         (standard-packages '(:common-lisp :keyword :cl-user :lisp :editor :iiscv)))
+;;     (labels ((scan (subform)
+;;                (cond ((atom subform)
+;;                       (when (and (symbolp subform)
+;;                                  (not (keywordp subform)))
+;;                         (let* ((pkg (symbol-package subform))
+;;                                (pkg-name (and pkg (package-name pkg))))
+;;                           (when (and pkg
+;;                                      (not (member (intern (string-upcase pkg-name) :keyword)
+;;                                                   standard-packages)))
+;;                             (push subform found-symbols)))))
+;;                      ((listp subform)
+;;                       (dolist (item subform)
+;;                         (scan item))))))
+;;       (scan form)
+;;       (not (null found-symbols)))))
+
+
 (defun find-implementation-specific-symbols (form)
   "Recursively finds symbols that are not in a standard Common Lisp or project package."
   (let ((found-symbols nil)
-        (standard-packages '(:common-lisp :keyword :cl-user :lisp :editor :iiscv)))
+        (standard-packages (mapcar #'package-name (list-all-packages))))
     (labels ((scan (subform)
                (cond ((atom subform)
                       (when (and (symbolp subform)
@@ -118,14 +167,14 @@
                         (let* ((pkg (symbol-package subform))
                                (pkg-name (and pkg (package-name pkg))))
                           (when (and pkg
-                                     (not (member (intern (string-upcase pkg-name) :keyword)
-                                                  standard-packages)))
+                                     (not (member pkg-name standard-packages :test #'string-equal)))
                             (push subform found-symbols)))))
                      ((listp subform)
                       (dolist (item subform)
                         (scan item))))))
       (scan form)
       (not (null found-symbols)))))
+
 
 
 
@@ -140,6 +189,8 @@
                  (not (gethash param used-symbols)))
         (push param unused-params)))
     (reverse unused-params)))
+
+
 
 
 (defun get-parameters-list (definition-form)

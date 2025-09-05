@@ -20,6 +20,12 @@
 
 (in-package #:iiscv)
 
+(defun clear-all-commits()
+  (setf iiscv::*atomic-history-graph* (make-instance 'cl-graph:dot-graph))
+  (setf iiscv::*human-history-graph* (make-instance 'cl-graph:dot-graph))
+  (setf iiscv::*function-to-uuid-map* (make-hash-table :test 'equal))
+  (setf iiscv::*current-human-commit* nil)
+  (setf iiscv::*last-atomic-commit-uuid* nil))
 
 
 (defvar *function-to-uuid-map* (make-hash-table :test 'equal)
@@ -33,26 +39,30 @@
 (defvar *last-atomic-commit-uuid* nil
   "Reference to the UUID of the last atomic commit.")
 
+
 (defun make-atomic-commit (definition-form)
   "Creates a new atomic commit and extracts all the data for the quality audit."
   (setq *audit-violations* nil)
   (lisa:reset)
-
   (let* ((name-form (and (listp definition-form) (second definition-form)))
-         (name (if (symbolp name-form)
-                   name-form
-                   (princ-to-string name-form)))
-         (docstring (get-docstring definition-form))
-         (has-docstring-p (not (null docstring)))
-         (body-length (calculate-body-length definition-form))
-         (cyclomatic-complexity (calculate-cyclomatic-complexity definition-form))
-         (magic-numbers (find-magic-numbers definition-form))
-         (unused-parameters (find-unused-parameters definition-form))
-         (is-redefining-core-symbol-p (and (symbolp name) (is-redefining-core-symbol-p name)))
-         (uses-unsafe-execution-p (find-unsafe-execution-forms definition-form))
-         (contains-heavy-consing-loop-p (contains-heavy-consing-loop-p definition-form))
-         (uses-implementation-specific-symbols-p (find-implementation-specific-symbols definition-form))
-         (commit-uuid (format nil "~a" (uuid:make-v4-uuid))))
+	 (name (if (symbolp name-form)
+		   name-form
+		   (intern (string-join
+			    (mapcar #'princ-to-string
+				    (alexandria:flatten name-form ))
+			    "-"))))
+
+	 (docstring (get-docstring definition-form))
+	 (has-docstring-p (not (null docstring)))
+	 (body-length (calculate-body-length definition-form))
+	 (cyclomatic-complexity (calculate-cyclomatic-complexity definition-form))
+	 (magic-numbers (find-magic-numbers definition-form))
+	 (unused-parameters (find-unused-parameters definition-form))
+	 (is-redefining-core-symbol-p (and (symbolp name) (is-redefining-core-symbol-p name)))
+	 (uses-unsafe-execution-p (find-unsafe-execution-forms definition-form))
+	 (contains-heavy-consing-loop-p (contains-heavy-consing-loop-p definition-form))
+	 (uses-implementation-specific-symbols-p (find-implementation-specific-symbols definition-form))
+	 (commit-uuid (format nil "~a" (uuid:make-v4-uuid))))
 
     ;; Run the analysis. The global variable will be populated.
     (analyze-commit-and-assert
@@ -70,26 +80,30 @@
 
     ;; Package all data, including LISA's results.
     (let ((commit-data `(:uuid ,commit-uuid
-                         :source-form ,definition-form
-                         :symbol-name ,name
-                         :message ,(or docstring "No docstring provided for this commit.")
-                         :timestamp ,(get-universal-time)
-                         :rules-violations ,*audit-violations*)))
+			 :source-form ,definition-form
+			 :symbol-name ,name
+			 :message ,(or docstring "No docstring provided for this commit.")
+			 :timestamp ,(get-universal-time)
+			 :rules-violations ,*audit-violations*)))
 
       (cl-graph:add-vertex *atomic-history-graph* commit-data)
       (when *last-atomic-commit-uuid*
-        (cl-graph:add-edge-between-vertexes *atomic-history-graph* *last-atomic-commit-uuid* commit-uuid))
+	(cl-graph:add-edge-between-vertexes *atomic-history-graph* *last-atomic-commit-uuid* commit-uuid))
       (setf *last-atomic-commit-uuid* commit-uuid)
-
       (when (symbolp name)
-        (let ((fully-qualified-name (format nil "~A::~A" (package-name (symbol-package name)) (symbol-name name))))
-          (setf (gethash fully-qualified-name *function-to-uuid-map*) commit-uuid)))
-
+	(let ((fully-qualified-name (format nil "~A::~A" (package-name (symbol-package name)) (symbol-name name))))
+	  (setf (gethash fully-qualified-name *function-to-uuid-map*) commit-uuid)))
       (make-file-commit commit-uuid definition-form)
-
       (format t "~%Violations detected: ~A~%" (length *audit-violations*))
       (format t "~{~a~%~}" (mapcar #'car *audit-violations*))
       commit-uuid)))
+
+
+(defun string-join (list-of-strings separator)
+  "Joins a list of strings with a separator."
+  (format nil (format nil "~~{~~a~~^~a~~}" separator) list-of-strings))
+
+
 
 
 
@@ -148,7 +162,6 @@
     
     commit-uuid))
 
-
 (defun iiscv-repl ()
   "A REPL that automatically commits top-level definition forms and handles errors gracefully."
   (in-package :iiscv)
@@ -185,25 +198,6 @@
                 (make-atomic-commit form))
               (eval form))))))
   (format t "~%File '~A' loaded and audited successfully.~%" filename))
-
-
-;; (defun iiscv-repl ()
-;;   "A REPL that automatically commits top-level definition forms and handles errors gracefully."
-;;   (in-package :iiscv)
-;;   (let ((prompt (format nil "~A-R> " (package-name *package*))))
-;;     (loop
-;;       (format t "~%~A" prompt)
-;;       (handler-case
-;;           (let* ((form (read)))
-;;             (let ((result (eval form)))
-;;               (when (get-commit-type form)
-;;                 (make-atomic-commit form))
-;;               (unless (eq result :no-print)
-;;                 (print result))))
-;;         (error (e)
-;;           (format t "~%Error: ~A~%" e)
-;;           (format t "~%Resuming "))))))
-
 
 
 (defun get-last-uuid-by-name (name-symbol)
@@ -453,7 +447,4 @@
           (format t "No audit files found in ~A~%" audit-dir))))
   (format t "All audits completed.~%"))
 
-
-
-;;; main;;;;;;
 
