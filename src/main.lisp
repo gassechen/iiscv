@@ -19,7 +19,6 @@
            #:run-all-audits))
 
 (in-package #:iiscv)
-
 (defun clear-all-commits()
   (setf iiscv::*atomic-history-graph* (make-instance 'cl-graph:dot-graph))
   (setf iiscv::*human-history-graph* (make-instance 'cl-graph:dot-graph))
@@ -118,9 +117,6 @@
   "Reference to the UUID of the last human-level commit.")
 
 
-
-
-
 (defun get-timestamp-of-last-human-commit ()
   "Devuelve la marca de tiempo del último commit humano, o 0 si no existen."
   (if *current-human-commit*
@@ -193,6 +189,33 @@
     ;; 3. Update the global variable
     (setf *current-human-commit* commit-uuid)
     commit-uuid))
+
+
+(defun has-pending-changes-p ()
+  "Devuelve T si hay commits atómicos sin commit humano asociado.
+   Maneja correctamente tanto vértices completos como UUIDs sueltos."
+  (handler-case
+      (progn
+        (unless *atomic-history-graph*
+          (return-from has-pending-changes-p nil))
+        
+        (let* ((last-human-time (get-timestamp-of-last-human-commit))
+               (all-atomic-commits (cl-graph:vertexes *atomic-history-graph*)))
+          (loop for vertex in all-atomic-commits
+                for data = (cl-graph:element vertex)
+                ; Ignorar elementos que no son commits válidos
+                when (and (listp data)
+                         (getf data :uuid)      ; Verificar que tenga UUID
+                         (getf data :timestamp) ; Verificar que tenga timestamp
+                         (> (getf data :timestamp) last-human-time))
+                  return t)))
+    (error (e)
+      (format t "Error en has-pending-changes-p: ~A~%" e)
+      nil)))
+
+
+
+
 
 (defun iiscv-repl ()
   "A REPL that automatically commits top-level definition forms and handles errors gracefully."
