@@ -176,29 +176,47 @@
       (not (null found-symbols)))))
 
 
-
-
 (defun find-unused-parameters (definition-form)
   "Finds parameters in a function definition that are declared but not used."
   (let* ((params (get-parameters-list definition-form))
          (body (get-body-forms definition-form))
          (used-symbols (find-used-symbols body))
          (unused-params nil))
+    (setf params (remove-if (lambda (param) 
+                              (member param '(&optional &rest &key &aux 
+                                               &allow-other-keys &whole &environment)))
+                            params))
+    
     (dolist (param params)
       (when (and (symbolp param)
                  (not (gethash param used-symbols)))
         (push param unused-params)))
     (reverse unused-params)))
-
-
 
 
 (defun get-parameters-list (definition-form)
   "Extracts the parameters list from a definition form."
   (when (and (listp definition-form)
              (member (car definition-form) '(defun defmacro)))
-    (third definition-form)))
+    (let ((params (third definition-form)))
+      (extract-parameter-names params))))
 
+(defun extract-parameter-names (params)
+  "Extrae solo los nombres de los parámetros, ignorando palabras clave y valores iniciales."
+  (let ((result '()))
+    (labels ((traverse (lst)
+               (cond
+                 ((null lst) nil)
+                 ((member (car lst) '(&optional &rest &key &aux &allow-other-keys))
+                  (traverse (cdr lst)))
+                 ((consp (car lst))
+                  (push (caar lst) result)
+                  (traverse (cdr lst)))
+                 (t
+                  (push (car lst) result)
+                  (traverse (cdr lst))))))
+      (traverse params)
+      (reverse result))))
 
 
 (defun find-unused-parameters (definition-form)
@@ -212,6 +230,7 @@
                  (not (gethash param used-symbols)))
         (push param unused-params)))
     (reverse unused-params)))
+
 
 (defun find-used-symbols (form)
   "Recursively traverses a form to find and count all symbols used."
@@ -219,13 +238,15 @@
     (labels ((scan (subform)
                (cond ((atom subform)
                       (when (and (symbolp subform)
-                                 (not (keywordp subform)))
+                                 (not (keywordp subform))
+                                 (not (member subform '(&optional &rest &key &aux 
+                                                            &allow-other-keys &whole &environment))))
                         (incf (gethash subform used-symbols 0))))
                      ((listp subform)
                       (dolist (item subform)
                         (scan item))))))
-      (scan form)
-      used-symbols)))
+      (scan form))
+    used-symbols))
 
 
 

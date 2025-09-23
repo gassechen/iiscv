@@ -636,10 +636,6 @@
     (length final-forms)))
 
 
-
-
-
-
 (defun dump-source-code-by-commit-type (&optional (output-dir #p"output_src/"))
   "Dumps the source code grouped by the type of commit recorded."
 
