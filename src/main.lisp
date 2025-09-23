@@ -92,7 +92,7 @@
       (when (symbolp name)
 	(let ((fully-qualified-name (format nil "~A::~A" (package-name (symbol-package name)) (symbol-name name))))
 	  (setf (gethash fully-qualified-name *function-to-uuid-map*) commit-uuid)))
-      (make-file-commit commit-uuid definition-form)
+
       (format t "~%Violations detected: ~A~%" (length *audit-violations*))
       (format t "~{~a~%~}" (mapcar #'car *audit-violations*))
       commit-uuid)))
@@ -101,9 +101,6 @@
 (defun string-join (list-of-strings separator)
   "Joins a list of strings with a separator."
   (format nil (format nil "~~{~~a~~^~a~~}" separator) list-of-strings))
-
-
-
 
 
 
@@ -128,7 +125,7 @@
       0))
 
 
-(defun make-human-commit (message &optional (file-path nil))
+(defun make-human-commit (message)
   "Creates a new human-level commit by automatically finding recent definitions
    and linking them to the atomic history."
   (let* ((all-symbols (cl-graph:vertexes *atomic-history-graph*))
@@ -151,18 +148,58 @@
            (commit-data `(:uuid ,commit-uuid
                            :message ,message
                            :atomic-uuids ,atomic-uuids
-                           :timestamp ,(get-universal-time)
-                           :file-path ,file-path)))
+                           :timestamp ,(get-universal-time))))
 
       (cl-graph:add-vertex *human-history-graph* commit-data)
       (when *current-human-commit*
         (cl-graph:add-edge-between-vertexes *human-history-graph* *current-human-commit* commit-uuid))
 
       (setf *current-human-commit* commit-uuid)
-      
+
+      (generate-tests-for-human-commit commit-data)
+
       (format t "~%New human commit created for symbols: ~A~%" unique-symbols)
       commit-uuid)))
 
+
+
+(defun generate-tests-for-human-commit (human-commit-data)
+  "Generate test files for all forms in a human commit using make-file-commit."
+  (let* ((atomic-uuids (getf human-commit-data :atomic-uuids)))
+    (loop for atomic-uuid in atomic-uuids
+          do (let* ((vertex (find-vertex-by-uuid *atomic-history-graph* atomic-uuid))
+                   (atomic-data (when vertex (cl-graph:element vertex)))
+                   (form (getf atomic-data :source-form)))
+               (when form
+                 (make-file-commit atomic-uuid form))))))
+
+
+;;;;;;;;;;;;;;;;;;;;; ver ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defun make-human-history-file (file-path human-commit-data)
+  "Generates a .lisp file with the given filename inside the output_src directory
+   and writes the source forms of the atomic commits into it."
+  (let* ((atomic-uuids (getf human-commit-data :atomic-uuids))
+         (output-dir (uiop:ensure-directory-pathname "output_src/"))
+         (full-path (merge-pathnames (pathname file-path) output-dir)))
+
+    (ensure-directories-exist output-dir)
+    
+    (format t "~%Writing human commit source to file: ~a~%" full-path)
+    (with-open-file (stream full-path :direction :output :if-exists :supersede)
+      (format stream ";;; Human Commit: ~a~%" (getf human-commit-data :message))
+      (format stream ";;; UUID: ~a~%" (getf human-commit-data :uuid))
+      (format stream ";;; Timestamp: ~a~%~%" (getf human-commit-data :timestamp))
+      
+      (dolist (uuid atomic-uuids)
+        (let ((source-form (get-source-form-by-uuid uuid)))
+          (when source-form
+            (format stream "~%~S~%" source-form)))))
+    
+    (format t "File created successfully.~%")))
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 
 (defun manual-human-commit (message symbols &optional (file-path nil))
@@ -214,8 +251,7 @@
       nil)))
 
 
-
-
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; REPL ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (defun iiscv-repl ()
   "A REPL that automatically commits top-level definition forms and handles errors gracefully."
@@ -254,6 +290,10 @@
               (eval form))))))
   (format t "~%File '~A' loaded and audited successfully.~%" filename))
 
+
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; AUX FN COMMITS ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (defun get-last-uuid-by-name (name-symbol)
   "Returns the UUID of the last committed version of a function by its name."
@@ -295,6 +335,16 @@
 (register-commit-type 'defclass 'type)
 (register-commit-type 'defstruct 'type)
 (register-commit-type 'ql:quickload 'dependency)
+
+
+(defun show-atomic-commit()
+  "show-atomic-commit"
+  (cl-graph:vertexes *atomic-history-graph*))
+
+(defun show-human-commit()
+  "show-human-commit"
+  (cl-graph:vertexes *human-history-graph*))
+
 
 
 ;;;;;;;;;; Granular class actions;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -378,15 +428,116 @@
 				     (setf found-vertex v)))))
     found-vertex))
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defun show-project-milestones ()
+  "Displays the curated project history by navigating the human commits."
+  (format t "~%--- Project Milestones (Human History) ---~%")
+  (let ((human-commits (cl-graph:topological-sort *human-history-graph*)))
+    (dolist (commit-node human-commits)
+      (let ((data (get-data-from-vertex commit-node)))
+        (when data
+          (format t "~%* Milestone: ~A~%" (getf data :message))
+          (format t "  UUID: ~A~%" (getf data :uuid))
+          (format t "  Timestamp: ~A~%" (getf data :timestamp))
+          (format t "  Atomic Changes: ~A~%" (getf data :atomic-uuids))))))
+  (format t "--------------------------------------------~%"))
+
+(defun audit-atomic-history ()
+  "Displays the complete and detailed history by navigating the atomic commits."
+  (format t "~%--- Atomic History Audit (Blockchain) ---~%")
+  (let ((atomic-commits (cl-graph:topological-sort *atomic-history-graph*)))
+    (dolist (commit-node atomic-commits)
+      (let ((data (get-data-from-vertex commit-node)))
+        (when data
+          (format t "~%* Atomic Commit: ~A~%" (getf data :uuid))
+          (format t "  Message: ~A~%" (getf data :message))
+          (format t "  Form: ~A~%" (getf data :source-form))
+          (format t "  Timestamp: ~A~%" (getf data :timestamp))
+          (format t "  Violations detected: ~A~%" (mapcar #'car (getf data :rules-violations))))))))
 
 
-(defun show-atomic-commit()
-  "show-atomic-commit"
-  (cl-graph:vertexes *atomic-history-graph*))
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(defun show-human-commit()
-  "show-human-commit"
-  (cl-graph:vertexes *human-history-graph*))
+(defun make-rove-test-form (commit-uuid form)
+  "Wraps a Lisp form in a Rove deftest form for auditing."
+  `(rove:deftest ,(intern (format nil "COMMIT-~A-TEST" commit-uuid) "KEYWORD")
+     (rove:ok (eval ',form) "The form should evaluate without error.")))
+
+
+(defun make-file-commit (commit-uuid form)
+  "Writes a Rove-compatible test file for a commit."
+  (let* ((filepath (merge-pathnames (format nil "audits/~A.lisp" commit-uuid)
+                                    (asdf:system-source-directory :iiscv))))
+    (ensure-directories-exist filepath)
+    (with-open-file (stream filepath
+			    :direction
+			    :output
+			    :if-exists
+			    :supersede)
+      (let ((*print-case* :downcase))
+        (format stream "~S" (make-rove-test-form commit-uuid form))))))
+
+
+(defun run-all-audits ()
+  "Runs all audit tests loaded into the system by evaluating the audit files."
+  (format t "~%Running all audits...~%")
+  (let ((audit-dir (merge-pathnames "audits/" (asdf:system-source-directory :iiscv))))
+    (unless (uiop:directory-exists-p audit-dir)
+      (format t "Error: Audit directory not found at ~A~%" audit-dir)
+      (return-from run-all-audits nil))
+    (let ((audit-files (uiop:directory-files audit-dir "*.lisp")))
+      (if audit-files
+          (progn
+            (dolist (file audit-files)
+              (format t "Loading audit file: ~A~%" file)
+              (load file))
+            (format t "~%All audit files loaded. Running tests...~%")
+            (rove:run-suite :iiscv))
+          (format t "No audit files found in ~A~%" audit-dir))))
+  (format t "All audits completed.~%"))
+
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; Image Management
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defun save-development-image (path)
+  "Saves a development image with all history and audit data.
+   This image is useful for continuing development from the current state."
+  (when (has-pending-changes-p)
+    (format t "~%ERROR: Cannot save development image. There are pending atomic changes.~%")
+    (format t "Please run (make-human-commit \"Descriptive message\") to consolidate changes before continuing.~%")
+    (return-from save-development-image nil))
+  
+  (format t "~%Saving full development image...~%")
+  #+sbcl (sb-ext:save-lisp-and-die path :executable t)
+  #+ccl (ccl:save-application path :prepend-kernel t)
+  #+abcl (ext:save-application path :executable t)
+  #+ecl (ext:save-executable path :toplevel #'iiscv-repl))
+
+
+(defun save-production-image (path)
+  "Creates a lightweight production image by rebuilding the system from human commits.
+   This approach is non-destructive and more robust."
+  (when (has-pending-changes-p)
+    (format t "~%ERROR: Cannot create production image. There are pending atomic changes.~%")
+    (format t "Please run (make-human-commit \"Descriptive message\") to consolidate changes before continuing.~%")
+    (return-from save-production-image nil))
+  
+  (format t "~%Creating lightweight production image...~%")
+  
+  ;; 1. Rebuild the system from the human-curated history
+  (rebuild-image-from-human-history)
+
+  ;; 2. Once rebuilt, save the new, clean image. The history graphs are not
+  ;;    included in this new image because they are not part of the `rebuild`.
+  (format t "~%Reconstruction complete. Saving production image to ~a...~%" path)
+  #+sbcl (sb-ext:save-lisp-and-die path :executable t)
+  #+ccl (ccl:save-application path :prepend-kernel t)
+  #+abcl (ext:save-application path :executable t)
+  #+ecl (ext:save-executable path :toplevel #'iiscv-repl))
 
 
 (defun rebuild-image-from-human-history ()
@@ -440,66 +591,117 @@
       element)))
 
 
-(defun show-project-milestones ()
-  "Displays the curated project history by navigating the human commits."
-  (format t "~%--- Project Milestones (Human History) ---~%")
-  (let ((human-commits (cl-graph:topological-sort *human-history-graph*)))
-    (dolist (commit-node human-commits)
-      (let ((data (get-data-from-vertex commit-node)))
-        (when data
-          (format t "~%* Milestone: ~A~%" (getf data :message))
-          (format t "  UUID: ~A~%" (getf data :uuid))
-          (format t "  Timestamp: ~A~%" (getf data :timestamp))
-          (format t "  Atomic Changes: ~A~%" (getf data :atomic-uuids))))))
-  (format t "--------------------------------------------~%"))
-
-(defun audit-atomic-history ()
-  "Displays the complete and detailed history by navigating the atomic commits."
-  (format t "~%--- Atomic History Audit (Blockchain) ---~%")
-  (let ((atomic-commits (cl-graph:topological-sort *atomic-history-graph*)))
-    (dolist (commit-node atomic-commits)
-      (let ((data (get-data-from-vertex commit-node)))
-        (when data
-          (format t "~%* Atomic Commit: ~A~%" (getf data :uuid))
-          (format t "  Message: ~A~%" (getf data :message))
-          (format t "  Form: ~A~%" (getf data :source-form))
-          (format t "  Timestamp: ~A~%" (getf data :timestamp))
-          (format t "  Violations detected: ~A~%" (mapcar #'car (getf data :rules-violations))))))))
 
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(defun make-rove-test-form (commit-uuid form)
-  "Wraps a Lisp form in a Rove deftest form for auditing."
-  `(rove:deftest ,(intern (format nil "COMMIT-~A-TEST" commit-uuid) "KEYWORD")
-     (rove:ok (eval ',form) "The form should evaluate without error.")))
+(defun dump-source-code (&optional (output-dir #p"output_src/"))
+  "Dumps all source code from human commits into files. Extracts only the latest versions of each symbol to avoid duplication."
+
+  (let ((processed-symbols (make-hash-table :test 'equal)) 
+        (final-forms '())) 
+    
+    
+    (loop for human-vertex in (cl-graph:topological-sort *human-history-graph*)
+          for human-data = (cl-graph:element human-vertex)
+          for atomic-uuids = (getf human-data :atomic-uuids)
+          do (loop for atomic-uuid in atomic-uuids
+                  do (let* ((atomic-vertex (find-vertex-by-uuid *atomic-history-graph* atomic-uuid))
+                           (atomic-data (cl-graph:element atomic-vertex))
+                           (form (getf atomic-data :source-form))
+                           (symbol-name (getf atomic-data :symbol-name)))
+                       
+    
+                       (when (and symbol-name
+                                  (listp form))
+                         
+    
+                         (unless (gethash symbol-name processed-symbols)
+                           (push form final-forms)
+                           (setf (gethash symbol-name processed-symbols) t))))))
+    
+    
+    (ensure-directories-exist output-dir)
+    
+    
+    (with-open-file (stream (merge-pathnames "dump.lisp" output-dir)
+                           :direction :output
+                           :if-exists :supersede)
+      (dolist (form (reverse final-forms))
+        (format stream "~S~%" form))
+      (format stream "~%~%;; Generated by IISCV dump-source-code~%")
+      (format stream ";; Timestamp: ~A~%" (get-universal-time)))
+    
+    (format t "Dump source: ~A~%" (merge-pathnames "dump.lisp" output-dir))
+    (length final-forms)))
 
 
-(defun make-file-commit (commit-uuid form)
-  "Writes a Rove-compatible test file for a commit."
-  (let* ((filepath (merge-pathnames (format nil "audits/~A.lisp" commit-uuid)
-                                    (asdf:system-source-directory :iiscv))))
-    (ensure-directories-exist filepath)
-    (with-open-file (stream filepath :direction :output :if-exists :supersede)
-      (let ((*print-case* :downcase))
-        (format stream "~S" (make-rove-test-form commit-uuid form))))))
 
 
-(defun run-all-audits ()
-  "Runs all audit tests loaded into the system by evaluating the audit files."
-  (format t "~%Running all audits...~%")
-  (let ((audit-dir (merge-pathnames "audits/" (asdf:system-source-directory :iiscv))))
-    (unless (uiop:directory-exists-p audit-dir)
-      (format t "Error: Audit directory not found at ~A~%" audit-dir)
-      (return-from run-all-audits nil))
-    (let ((audit-files (uiop:directory-files audit-dir "*.lisp")))
-      (if audit-files
-          (progn
-            (dolist (file audit-files)
-              (format t "Loading audit file: ~A~%" file)
-              (load file))
-            (format t "~%All audit files loaded. Running tests...~%")
-            (rove:run-suite :iiscv))
-          (format t "No audit files found in ~A~%" audit-dir))))
-  (format t "All audits completed.~%"))
 
 
+(defun dump-source-code-by-commit-type (&optional (output-dir #p"output_src/"))
+  "Dumps the source code grouped by the type of commit recorded."
+
+  (let ((processed-symbols (make-hash-table :test 'equal))
+        (forms-by-commit-type (make-hash-table :test 'equal))) ; commit-type -> lista de formas
+    ; Loop through human commits and group by commit type
+    (loop for human-vertex in (cl-graph:topological-sort *human-history-graph*)
+          for human-data = (cl-graph:element human-vertex)
+          for atomic-uuids = (getf human-data :atomic-uuids)
+          do (loop for atomic-uuid in atomic-uuids
+                  do (let* ((atomic-vertex (find-vertex-by-uuid *atomic-history-graph* atomic-uuid))
+                           (atomic-data (cl-graph:element atomic-vertex))
+                           (form (getf atomic-data :source-form))
+                           (symbol-name (getf atomic-data :symbol-name)))
+                       
+		       
+                       (when (and symbol-name
+                                  (listp form))
+                         
+                         
+                         (let ((commit-type (get-commit-type form)))
+                           (when commit-type
+                             
+                             (unless (gethash symbol-name processed-symbols)
+                               (push form (gethash commit-type forms-by-commit-type))
+                               (setf (gethash symbol-name processed-symbols) t))))))))
+    
+    
+    (ensure-directories-exist output-dir)
+    
+    
+    (with-open-file (main-stream (merge-pathnames "main.lisp" output-dir)
+                                :direction :output
+                                :if-exists :supersede)
+      (format main-stream ";; Generated by IISCV dump-source-code-by-commit-type~%")
+      (format main-stream ";; Timestamp: ~A~%~%" (get-universal-time))
+      (loop for commit-type being the hash-keys of forms-by-commit-type
+            for filename = (case commit-type
+                             (function "functions.lisp")
+                             (variable "variables.lisp")
+                             (type "types.lisp")
+                             (slot-change "slot-changes.lisp")
+                             (dependency "dependencies.lisp")
+                             (t (format nil "~a.lisp" commit-type)))
+            do (format main-stream "(load \"~A\")~%" filename)))
+    
+    (loop for commit-type being the hash-keys of forms-by-commit-type
+          for forms being the hash-values of forms-by-commit-type
+          for filename = (case commit-type
+                           (function "functions.lisp")
+                           (variable "variables.lisp")
+                           (type "types.lisp")
+                           (slot-change "slot-changes.lisp")
+                           (dependency "dependencies.lisp")
+                           (t (format nil "~a.lisp" commit-type)))
+          when forms
+          do (with-open-file (stream (merge-pathnames filename output-dir)
+                                   :direction :output
+                                   :if-exists :supersede)
+               (format stream ";; ~A definitions~%" (string-capitalize (string commit-type)))
+               (format stream ";; Generated by IISCV~%")
+               (dolist (form (reverse forms))
+                 (format stream "~S~%" form))))
+    
+    (format t "Source code dumped by commit type in: ~A~%" output-dir)))
