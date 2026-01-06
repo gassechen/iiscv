@@ -291,211 +291,6 @@
   (format t "~%File '~A' loaded and audited successfully.~%" filename))
 
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;;;;;;;;;;;;;;;;;;;;;;; GEMINI BINDS  ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-(defun start-ai-programmer (initial-task)
-  "Inicia un bucle donde Gemini CLI programa en el REPL de IISCV,
-   captura errores y se autocorrige."
-  (format t "~%=== Iniciando Programador IA en IISCV ===~%")
-  (format t "Tarea inicial: ~A~%~%" initial-task)
-  
-  (let ((current-prompt initial-task))
-    (loop
-      (handler-bind
-          ((error
-            (lambda (e)
-              ;; Cuando ocurra CUALQUIER error, no entres al debugger.
-              ;; En su lugar, captura el error y prepáralo para Gemini.
-              (let ((error-context (format nil "~
-El código anterior falló.
-ERROR: ~A
-TIPO DE ERROR: ~A
-Por favor, proporciona únicamente el código Lisp corregido para que lo intente de nuevo.
-Asegúrate de que la corrección solucione este error específico."
-                                           e
-                                           (type-of e))))
-                (format t "~%¡ERROR CAPTURADO! ~A~%" e)
-                (setf current-prompt error-context)
-                (invoke-restart 'continue))))) ; Reinicia el loop con el nuevo prompt
-        
-        ;; --- Bucle principal ---
-        (let* ((gemini-response (uiop:run-program `("gemini" "-p" ,current-prompt) :output :string))
-               (code-to-eval (extract-lisp-code gemini-response)))
-          
-          (cond
-            ((null code-to-eval)
-             (format t "Gemini no proporcionó código. Tal vez la tarea está completada.~%")
-             (return))
-            
-            (t
-             (format t "~%> Gemini sugiere:~%~A~%~%" code-to-eval)
-             (format t "> Evaluando con IISCV...~%")
-             
-             ;; Intenta evaluar el código. Si hay un error, handler-bind lo capturará.
-             (let ((result (eval (read-from-string code-to-eval))))
-               (format t "~% ÉXITO. Código evaluado.~%")
-               (format t "Resultado: ~A~%~%" result)
-               
-               ;; Si tuvo éxito, registra el commit y pide el siguiente paso.
-               (make-atomic-commit (read-from-string code-to-eval))
-               (format t "Commit atómico registrado en IISCV.~%")
-               (format t "~%Tarea completada o siguiente paso? (Escribe 'siguiente: [tu nueva tarea]' o 'terminar'): ")
-               (let ((user-input (read-line)))
-                 (if (string= user-input "terminar")
-                     (progn
-                       (format t "~%=== Programador IA detenido. ===~%")
-                       (return))
-                     (setf current-prompt user-input)))))))))))
-
-
-;; Función auxiliar para extraer solo el código Lisp de la respuesta de Gemini
-;;(defun extract-lisp-code (response)
-;;  "Extrae el primer bloque de código Lisp de una respuesta de texto."
-;;  (let* ((start (search "```lisp" response)))
-;;    (when start
-;;      (let* ((code-start (+ start 7))
-;;            (end (search "```" response :start2 code-start)))
-;;        (when end
-;;          (subseq response code-start end))))))
-
-
-
-(defun start-ai-programmer-debug (initial-task)
-  "Versión de depuración para ver la respuesta cruda de Gemini."
-  (format t "~%=== Iniciando Programador IA (MODO DEBUG) ===~%")
-  (format t "Tarea inicial: ~A~%~%" initial-task)
-  
-  (let* ((current-prompt initial-task)
-         (gemini-response (uiop:run-program `("gemini" "-p" ,current-prompt) :output :string :error-output :string)))
-    
-    (format t "--- RESPUESTA CRUDA DE GEMINI ---~%")
-    (format t "~A~%" gemini-response)
-    (format t "--------------------------------~%")
-    
-    ;; Intentamos extraer el código de varias maneras
-    (let ((code-to-eval (or (extract-lisp-code gemini-response)
-                            (extract-code-any-markdown gemini-response)
-                            (extract-plain-code gemini-response))))
-      
-      (cond
-        ((null code-to-eval)
-         (format t "No se pudo extraer código Lisp de la respuesta.~%"))
-        (t
-         (format t "~%> Código extraído con éxito:~%~A~%~%" code-to-eval)
-         (format t "> Evaluando con IISCV...~%")
-         (handler-case
-             (let ((result (eval (read-from-string code-to-eval))))
-               (format t "~% ÉXITO. Código evaluado.~%")
-               (format t "Resultado: ~A~%~%" result)
-               (iiscv:make-atomic-commit (read-from-string code-to-eval))
-               (format t "Commit atómico registrado en IISCV.~%"))
-           (error (e)
-             (format t "~%¡ERROR CAPTURADO! ~A~%" e)
-             (format t "Tipo de error: ~A~%" (type-of e)))))))))
-
-;; Funciones auxiliares más robustas para extraer código
-(defun extract-code-any-markdown (response)
-  "Extrae código de cualquier bloque markdown (```lisp, ```common-lisp, ```)."
-  (let* ((start (search "```" response)))
-    (when start
-      (let* ((lang-start (+ start 3))
-            (newline-pos (position #\Newline response :start lang-start))
-            (code-start (when newline-pos (+ newline-pos 1)))
-            (end (search "```" response :start2 (or code-start lang-start))))
-        (when (and code-start end)
-          (subseq response code-start end))))))
-
-(defun extract-plain-code (response)
-  "Intenta evaluar la respuesta como si fuera código Lisp plano."
-  (handler-case
-      (progn
-        (read-from-string response)
-        response)
-    (error () nil)))
-
-
-(defun check-violations ()
-  "Revisa si hay violaciones y, si las hay, inicia un ciclo de corrección."
-  (when *audit-violations*
-    (let* ((first-violation (caar *audit-violations*)) ; Obtiene la primera violación como string
-           (start-pos (search "found in '" first-violation))
-           (end-pos (when start-pos (search "'" first-violation :start2 (+ start-pos 10))))
-           (function-name (when (and start-pos end-pos)
-                            (string-upcase (subseq first-violation (+ start-pos 10) end-pos))))
-           (function-symbol (when function-name (find-symbol function-name :iiscv))))
-      
-      (when (and function-name function-symbol)
-        (let* ((fully-qualified-name (format nil "~A::~A" (package-name (symbol-package function-symbol)) (symbol-name function-symbol)))
-               (source-code (get-source-form fully-qualified-name))
-               (violation-messages (mapcar #'car *audit-violations*))) ; <-- OBTENER LOS MENSAJES
-          
-          (when source-code
-            ;; --- CORRECCIÓN CLAVE EN EL PROMPT ---
-            (let ((correction-prompt (format nil "The following Common Lisp function has these specific quality violations:
-
-Violations:
-~{~A~^~%~}
-
-Please fix the function to address these violations and provide only the corrected Lisp code.
-
-Function to fix:
-```lisp
-~A
-```"
-                                              violation-messages
-                                              source-code)))
-              (format t "~%> Violaciones detectadas. Iniciando corrección automática para ~A...~%" function-name)
-              (format t "> Enviando a Gemini el siguiente prompt de corrección:~%~A~%" correction-prompt)
-	      
-              ;;(start-ai-programmer-debug correction-prompt)
-	      )))))))
-
-
-;;;;;;;;;;;;;
-
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;;;;;;;;;;;;;;;;;;;;;;;; AI PROGRAMMER INTEGRADO ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-;; --- Función auxiliar robusta para extraer código de la respuesta de Gemini ---
-(defun extract-code-robust (response)
-  "Intenta extraer código Lisp de una respuesta de texto de forma robusta."
-  (or
-   ;; 1. Busca un bloque ```lisp
-   (let* ((start (search "```lisp" response)))
-     (when start
-       (let* ((code-start (+ start 7))
-             (end (search "```" response :start2 code-start)))
-         (when end
-           (subseq response code-start end)))))
-   ;; 2. Busca cualquier bloque ``` (ej. ```commonlisp)
-   (let* ((start (search "```" response)))
-     (when start
-       (let* ((lang-start (+ start 3))
-             (newline-pos (position #\Newline response :start lang-start))
-             (code-start (when newline-pos (+ newline-pos 1)))
-             (end (search "```" response :start2 (or code-start lang-start))))
-         (when (and code-start end)
-           (subseq response code-start end)))))
-   ;; 3. Si todo lo demás falla, asume que toda la respuesta es código Lisp SOLO si es una única forma válida.
-   (handler-case
-       (with-input-from-string (s response)
-         (let ((form (read s)))
-           ;; Verifica que no quede nada de texto después de la forma.
-           (when (null (peek-char nil s nil))
-             (prin1-to-string form))))
-     (error ())))) ; Si falla, devuelve nil.
-
-
-
-
-
-
-
-
-
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; AUX FN COMMITS ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -906,6 +701,600 @@ Function to fix:
                  (format stream "~S~%" form))))
     
     (format t "Source code dumped by commit type in: ~A~%" output-dir)))
+;;; lisa-rules.lisp
+
+(in-package :iiscv)
+
+(defvar *audit-violations* nil
+  "A global list to collect messages from audit rules.")
+
+(lisa-lisp:make-inference-engine)
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; Knowledge Base
+;;; Defines the templates and rules for static code analysis.
+;;;;;;;;;;;;;;;;;;;;;;-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;;;
+;;; Fact Templates
+;;;
+;;;  "Template for facts representing the analysis of a single code commit."
+
+(deftemplate code-commit-analysis ()
+  (slot commit-uuid)          
+  (slot symbol-name)          
+  (slot symbol-type)          
+  (slot body-length)          
+  (slot has-docstring-p)      
+  (slot magic-numbers)        
+  (slot unused-parameters)    
+  (slot cyclomatic-complexity)
+  (slot uses-unsafe-execution-p) 
+  (slot uses-implementation-specific-symbols-p) 
+  (slot is-redefining-core-symbol-p) 
+  (slot contains-heavy-consing-loop-p))
 
 
+;;;   "Template for facts that represent a violation of a quality rule."
+
+(deftemplate violation ()
+  (slot rule-id) 
+  (slot severity)
+  (slot message)) 
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defrule collect-violations ()
+  "Collects all violation facts into a global list."
+  (violation (message ?msg))
+  =>
+  (push (list ?msg)  *audit-violations*))
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;
+;;; Quality Rules
+;;;
+
+;;;
+;;; 1. Maintainability (Mantenibilidad)
+;;;
+;;;  "Fires when a function's cyclomatic complexity exceeds the threshold (e.g., 10)."
+(defrule rule-1-1-high-cyclomatic-complexity ()
+  (code-commit-analysis (symbol-name ?name)
+                        (cyclomatic-complexity ?cc))
+  (test (> ?cc 10))
+  =>
+  (assert (violation (rule-id "1.1")
+            (severity :error)
+            (message (format nil "High cyclomatic complexity (~a) detected in '~a'. Consider refactoring." ?cc ?name)))))
+
+
+;;; "Fires when a function's body length exceeds the threshold (e.g., 25)."
+(defrule rule-1-2-function-too-long ()
+  (code-commit-analysis (symbol-name ?name)
+			(body-length ?len ))
+  (test (> ?len 25))
+  =>
+  (assert (violation (rule-id "1.2")
+            (severity :warning)
+            (message (format nil "Symbol '~a' exceeds the 25-line limit (length: ~a)." ?name ?len)))))
+
+
+
+;;;  "Fires when literal numbers (other than 0 or 1) are found in the code."
+(defrule rule-1-3-magic-number-usage ()
+  (code-commit-analysis (symbol-name ?name)
+                        (magic-numbers ?nums))
+  (test (not (null ?nums)))
+  =>
+  (assert (violation (rule-id "1.3")
+                      (severity :warning)
+                      (message (format nil "Magic numbers ~a found in '~a'. Define them as constants." ?nums ?name)))))
+
+;;;
+;;; 2. Reliability (Fiabilidad)
+;;;
+
+;;;  "Fires when a commit attempts to redefine a symbol from the COMMON-LISP package."
+(defrule rule-2-2-core-symbol-redefinition ()
+  (code-commit-analysis (symbol-name ?name)
+			(is-redefining-core-symbol-p t))
+  =>
+  (assert (violation (rule-id "2.2")
+	    (severity :error)
+	    (message (format nil  "Attempt to redefine core symbol '~a'. This is highly dangerous." ?name)))))
+
+
+;;;
+;;; 3. Security (Seguridad)
+;;;
+;;; "Fires when a function appears to execute an external command."
+
+(defrule rule-3-1-unsafe-command-execution ()
+  (code-commit-analysis (symbol-name ?name)
+                        (uses-unsafe-execution-p t))
+  =>
+  (assert (violation (rule-id "3.1")
+                      (severity :error)
+                      (message (format nil  "Unsafe command execution detected in '~a'. Ensure all inputs are sanitized." ?name)))))
+
+
+;;;
+;;; 4. Performance Efficiency (Eficiencia de Desempeño)
+;;;
+;;; "Fires when memory allocation (consing) is detected inside a performance-critical loop."
+
+(defrule rule-4-1-consing-in-loop ()
+  (code-commit-analysis (symbol-name ?name)
+                        (contains-heavy-consing-loop-p t))
+  =>
+  (assert (violation (rule-id "4.1")
+                      (severity :warning)
+                      (message (format nil  "Heavy consing detected in a loop within '~a'. This may impact performance." ?name)))))
+
+
+;;;
+;;; 5. Functional Suitability (Idoneidad Funcional)
+;;;
+;;;"Fires when a function or class is defined without a docstring."
+(defrule rule-5-1-missing-docstring ()
+  (code-commit-analysis (symbol-name ?name)
+                        (has-docstring-p nil))
+  =>
+  (assert (violation (rule-id "5.1")
+                      (severity :info)
+                      (message (format nil  "Symbol '~a' is missing a docstring." ?name)))))
+
+
+
+;;;"Fires when a function has parameters that are declared but not used."
+(defrule rule-5-2-unused-parameter ()
+ (code-commit-analysis (symbol-name ?name)
+		       (unused-parameters ?params))
+  (test (not (null ?params)))
+  =>
+  (assert (violation (rule-id "5.2")
+            (severity :warning)
+            (message (format nil "Unused parameters ~a detected in '~a'." ?params ?name)))))
+
+;;;
+;;; 6. Portability (Portabilidad)
+;;;
+;;;  "Fires when code uses symbols specific to a particular Common Lisp implementation."
+
+(defrule rule-6-1-implementation-specific-symbols ()
+  (code-commit-analysis (symbol-name ?name)
+                        (uses-implementation-specific-symbols-p t))
+  =>
+  (assert (violation (rule-id "6.1")
+                      (severity :warning)
+                      (message (format nil  "Use of non-portable, implementation-specific symbols detected in '~a'." ?name)))))
+
+
+
+(defun test-all-rules ()
+  "Runs a comprehensive test of all quality auditor rules."
+  (lisa-lisp:reset)
+  
+  ;; Rule 1.1: High Cyclomatic Complexity
+  (lisa-lisp:assert (code-commit-analysis
+                     (commit-uuid "test-rule-1-1")
+                     (symbol-name "complex-function")
+                     (body-length 0)
+                     (cyclomatic-complexity 15)
+                     (magic-numbers nil)
+                     (is-redefining-core-symbol-p nil)
+                     (uses-unsafe-execution-p nil)
+                     (contains-heavy-consing-loop-p nil)
+                     (has-docstring-p t)
+                     (uses-implementation-specific-symbols-p nil)))
+  
+  ;; Rule 1.2: Function Too Long
+  (lisa-lisp:assert (code-commit-analysis
+                   (commit-uuid "test-rule-1-2")
+                   (symbol-name "my-long-function")
+                   (body-length 42)
+                   (cyclomatic-complexity 0)
+                   (magic-numbers nil)
+                   (is-redefining-core-symbol-p nil)
+                   (uses-unsafe-execution-p nil)
+                   (contains-heavy-consing-loop-p nil)
+                   (has-docstring-p t)
+                   (uses-implementation-specific-symbols-p nil)))
+  
+  ;; Rule 1.3: Magic Number Usage
+  (lisa-lisp:assert (code-commit-analysis
+                     (commit-uuid "test-rule-1-3")
+                     (symbol-name "bad-function")
+                     (body-length 0)
+                     (cyclomatic-complexity 0)
+                     (magic-numbers '(5 100))
+                     (is-redefining-core-symbol-p nil)
+                     (uses-unsafe-execution-p nil)
+                     (contains-heavy-consing-loop-p nil)
+                     (has-docstring-p t)
+                     (uses-implementation-specific-symbols-p nil)))
+
+  ;; Rule 2.2: Core Symbol Redefinition
+  (lisa-lisp:assert (code-commit-analysis
+                     (commit-uuid "test-rule-2-2")
+                     (symbol-name "DEFUN")
+                     (body-length 0)
+                     (cyclomatic-complexity 0)
+                     (magic-numbers nil)
+                     (is-redefining-core-symbol-p t)
+                     (uses-unsafe-execution-p nil)
+                     (contains-heavy-consing-loop-p nil)
+                     (has-docstring-p t)
+                     (uses-implementation-specific-symbols-p nil)))
+
+  ;; Rule 3.1: Unsafe Command Execution
+  (lisa-lisp:assert (code-commit-analysis
+                     (commit-uuid "test-rule-3-1")
+                     (symbol-name "exec-shell-command")
+                     (body-length 0)
+                     (cyclomatic-complexity 0)
+                     (magic-numbers nil)
+                     (is-redefining-core-symbol-p nil)
+                     (uses-unsafe-execution-p t)
+                     (contains-heavy-consing-loop-p nil)
+                     (has-docstring-p t)
+                     (uses-implementation-specific-symbols-p nil)))
+
+  ;; Rule 4.1: Consing in Loop
+  (lisa-lisp:assert (code-commit-analysis
+                     (commit-uuid "test-rule-4-1")
+                     (symbol-name "loop-with-cons")
+                     (body-length 0)
+                     (cyclomatic-complexity 0)
+                     (magic-numbers nil)
+                     (is-redefining-core-symbol-p nil)
+                     (uses-unsafe-execution-p nil)
+                     (contains-heavy-consing-loop-p t)
+                     (has-docstring-p t)
+                     (uses-implementation-specific-symbols-p nil)))
+  
+  ;; Rule 5.1: Missing Docstring
+  (lisa-lisp:assert (code-commit-analysis
+                     (commit-uuid "test-rule-5-1")
+                     (symbol-name "undocumented-function")
+                     (body-length 0)
+                     (cyclomatic-complexity 0)
+                     (magic-numbers nil)
+                     (is-redefining-core-symbol-p nil)
+                     (uses-unsafe-execution-p nil)
+                     (contains-heavy-consing-loop-p nil)
+                     (has-docstring-p nil)
+                     (uses-implementation-specific-symbols-p nil)))
+  
+  ;; Rule 6.1: Implementation-specific Symbols
+  (lisa-lisp:assert (code-commit-analysis
+                     (commit-uuid "test-rule-6-1")
+                     (symbol-name "sbcl-specific-function")
+                     (body-length 0)
+                     (cyclomatic-complexity 0)
+                     (magic-numbers nil)
+                     (has-docstring-p t)
+                     (is-redefining-core-symbol-p nil)
+                     (uses-unsafe-execution-p nil)
+                     (contains-heavy-consing-loop-p nil)
+                     (uses-implementation-specific-symbols-p t)))
+
+  ;; Run the inference engine
+  (lisa-lisp:run)
+  
+  ;; Display the final facts, which should include all the violations
+  (lisa-lisp:facts))
+;;; lisa-rules-aux-fn.lisp
+
+(in-package :iiscv)
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;FOR RULES LISA AUDITOR;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defun get-body-forms (definition-form)
+  "Extracts the body from a definition form, correctly handling docstrings."
+  (cond ((and (listp definition-form)
+              (member (car definition-form) '(defun defmacro)))
+         (let ((body (cdddr definition-form)))
+           (if (and (listp body) (stringp (car body)))
+               (cdr body)
+               body)))
+        (t
+         nil)))
+
+
+
+(defun calculate-body-length (definition-form)
+  "Calculates the length of a function's body.
+   This is an approximation: it counts top-level forms."
+  (let ((body-forms (get-body-forms definition-form)))
+    (if body-forms
+        (length body-forms)
+        0)))
+
+
+
+(defun count-decision-points (form)
+  "Recursively traverses a form to count control structures
+   that increase cyclomatic complexity."
+  (let ((count 0))
+    (when (listp form)
+      (case (car form)
+        ((if when cond case loop dolist dolist-from-end)
+         (incf count)))
+      (dolist (subform (cdr form))
+        (incf count (count-decision-points subform))))
+    count))
+
+
+
+(defun calculate-cyclomatic-complexity (definition-form)
+  "Calculates the cyclomatic complexity of a function."
+  (let ((body (and (listp definition-form)
+                   (cddr definition-form))))
+    (when (and body (stringp (car body)))
+      (setf body (cdr body)))
+    
+    (+ 1 (count-decision-points body))))
+
+
+;; (defun find-magic-numbers (form)
+;;   "Recursively traverses a form to find literal numbers
+;;    other than 0 or 1 and returns a list of them."
+;;   (let ((found-numbers nil))
+;;     (labels ((scan (subform)
+;;                (cond ((listp subform)
+;;                       (dolist (item subform)
+;;                         (scan item)))
+;;                      ((and (numberp subform)
+;;                            (not (member subform '(0 1))))
+;;                       (push subform found-numbers)))))
+;;       (scan form)
+;;       (reverse found-numbers))))
+
+
+(defun find-magic-numbers (form)
+  "Finds and returns a list of magic numbers in a Lisp form."
+  (let ((found-numbers nil))
+    (labels ((scan (subform)
+               (cond ((numberp subform)
+                      (push subform found-numbers))
+                     ((listp subform)
+                      ;; Check for DEFEUN, DEFMACRO, etc.
+                      (let ((form-type (car subform)))
+                        (when (eq form-type 'defun)
+                          ;; Scan the body of the function
+                          (dolist (item (cddr subform))
+                            (scan item)))
+                        (when (eq form-type 'defconstant)
+                          ;; Do not scan the number in a defconstant
+                          (return-from scan nil))
+                        (when (eq form-type 'defvar)
+                          ;; Do not scan the value of a defvar
+                          (return-from scan nil))
+                        ;; Recursively scan the rest of the list
+                        (dolist (item (cdr subform))
+                          (scan item)))))))
+      (scan form)
+      (when found-numbers
+        (list found-numbers)))))
+
+
+
+(defun find-unsafe-execution-forms (form)
+  "Recursively traverses a form to find symbols associated with unsafe
+   external command execution."
+  (let ((found-forms nil)
+        (unsafe-symbols '(uiop:run-program external-program:start)))
+    (labels ((scan (subform)
+               (when (listp subform)
+                 (let ((car-form (car subform)))
+                   ;; Check if the function call is one of the unsafe symbols
+                   (when (and (symbolp car-form)
+                              (member car-form unsafe-symbols))
+                     (push subform found-forms))
+                   ;; Continue scanning sub-forms
+                   (dolist (item (cdr subform))
+                     (scan item))))))
+      (scan form)
+      (reverse found-forms))))
+
+
+(defun contains-heavy-consing-loop-p (definition-form)
+  "Checks if a function definition contains heavy consing inside a loop."
+  (let ((consing-detected nil)
+        (consing-functions '(cons list list* make-array make-hash-table)))
+    (labels ((scan (form)
+               (when consing-detected
+                 (return-from scan))
+               (when (listp form)
+                 (let ((car-form (car form)))
+                   (when (member car-form '(loop dolist dotimes))
+                     ;; Now, scan the body of the loop for consing functions
+                     (dolist (item (cdr form))
+                       (when (and (listp item)
+                                  (member (car item) consing-functions))
+                         (setf consing-detected t)
+                         (return-from scan))))
+                   (dolist (item (cdr form))
+                     (scan item))))))
+      (scan definition-form)
+      consing-detected)))
+
+
+;; (defun find-implementation-specific-symbols (form)
+;;   "Recursively finds symbols that are not in a standard Common Lisp or project package."
+;;   (let ((found-symbols nil)
+;;         (standard-packages '(:common-lisp :keyword :cl-user :lisp :editor :iiscv)))
+;;     (labels ((scan (subform)
+;;                (cond ((atom subform)
+;;                       (when (and (symbolp subform)
+;;                                  (not (keywordp subform)))
+;;                         (let* ((pkg (symbol-package subform))
+;;                                (pkg-name (and pkg (package-name pkg))))
+;;                           (when (and pkg
+;;                                      (not (member (intern (string-upcase pkg-name) :keyword)
+;;                                                   standard-packages)))
+;;                             (push subform found-symbols)))))
+;;                      ((listp subform)
+;;                       (dolist (item subform)
+;;                         (scan item))))))
+;;       (scan form)
+;;       (not (null found-symbols)))))
+
+
+(defun find-implementation-specific-symbols (form)
+  "Recursively finds symbols that are not in a standard Common Lisp or project package."
+  (let ((found-symbols nil)
+        (standard-packages (mapcar #'package-name (list-all-packages))))
+    (labels ((scan (subform)
+               (cond ((atom subform)
+                      (when (and (symbolp subform)
+                                 (not (keywordp subform)))
+                        (let* ((pkg (symbol-package subform))
+                               (pkg-name (and pkg (package-name pkg))))
+                          (when (and pkg
+                                     (not (member pkg-name standard-packages :test #'string-equal)))
+                            (push subform found-symbols)))))
+                     ((listp subform)
+                      (dolist (item subform)
+                        (scan item))))))
+      (scan form)
+      (not (null found-symbols)))))
+
+
+(defun find-unused-parameters (definition-form)
+  "Finds parameters in a function definition that are declared but not used."
+  (let* ((params (get-parameters-list definition-form))
+         (body (get-body-forms definition-form))
+         (used-symbols (find-used-symbols body))
+         (unused-params nil))
+    (setf params (remove-if (lambda (param) 
+                              (member param '(&optional &rest &key &aux 
+                                               &allow-other-keys &whole &environment)))
+                            params))
+    
+    (dolist (param params)
+      (when (and (symbolp param)
+                 (not (gethash param used-symbols)))
+        (push param unused-params)))
+    (reverse unused-params)))
+
+
+(defun get-parameters-list (definition-form)
+  "Extracts the parameters list from a definition form."
+  (when (and (listp definition-form)
+             (member (car definition-form) '(defun defmacro)))
+    (let ((params (third definition-form)))
+      (extract-parameter-names params))))
+
+(defun extract-parameter-names (params)
+  "Extrae solo los nombres de los parámetros, ignorando palabras clave y valores iniciales."
+  (let ((result '()))
+    (labels ((traverse (lst)
+               (cond
+                 ((null lst) nil)
+                 ((member (car lst) '(&optional &rest &key &aux &allow-other-keys))
+                  (traverse (cdr lst)))
+                 ((consp (car lst))
+                  (push (caar lst) result)
+                  (traverse (cdr lst)))
+                 (t
+                  (push (car lst) result)
+                  (traverse (cdr lst))))))
+      (traverse params)
+      (reverse result))))
+
+
+(defun find-unused-parameters (definition-form)
+  "Finds parameters in a function definition that are declared but not used."
+  (let* ((params (get-parameters-list definition-form))
+         (body (get-body-forms definition-form))
+         (used-symbols (find-used-symbols body))
+         (unused-params nil))
+    (dolist (param params)
+      (when (and (symbolp param)
+                 (not (gethash param used-symbols)))
+        (push param unused-params)))
+    (reverse unused-params)))
+
+
+(defun find-used-symbols (form)
+  "Recursively traverses a form to find and count all symbols used."
+  (let ((used-symbols (make-hash-table :test 'eq)))
+    (labels ((scan (subform)
+               (cond ((atom subform)
+                      (when (and (symbolp subform)
+                                 (not (keywordp subform))
+                                 (not (member subform '(&optional &rest &key &aux 
+                                                            &allow-other-keys &whole &environment))))
+                        (incf (gethash subform used-symbols 0))))
+                     ((listp subform)
+                      (dolist (item subform)
+                        (scan item))))))
+      (scan form))
+    used-symbols))
+
+
+
+(defun get-docstring (definition-form)
+  "Extracts the docstring from a definition form, returning NIL if none exists."
+  (let ((docstring-candidate (nthcdr 2 definition-form)))
+    (loop for form in docstring-candidate
+          when (stringp form)
+            do (return form))))
+
+
+
+
+(defun is-redefining-core-symbol-p (name)
+  "Placeholder for a function to check for core symbol redefinition."
+  (declare (ignore name))
+  nil)
+
+
+
+
+(defun check-implementation-specific-symbols-for (symbol-name)
+  "Checks if a symbol is likely implementation-specific by its name prefix."
+  (let ((prefixes '("SB-" "ECL-" "CCL-" "ALLEGRO-" "LISPWORKS-" "CLISP-" "CMUCL-" "ABCL-")))
+    (loop for prefix in prefixes
+          thereis (string-starts-with-p prefix (string-upcase symbol-name)))))
+
+
+(defun string-starts-with-p (prefix string)
+  "Helper function to check if a string starts with a given prefix."
+  (and (>= (length string) (length prefix))
+       (string= prefix string :end2 (length prefix))))
+
+
+
+
+
+(defun analyze-commit-and-assert (&key uuid name has-docstring-p body-length
+				    cyclomatic-complexity magic-numbers
+				    unused-parameters
+				    is-redefining-core-symbol-p
+				    uses-unsafe-execution-p
+				    contains-heavy-consing-loop-p
+				    uses-implementation-specific-symbols-p)
+  "Analiza los datos de un commit y aserta un hecho para el motor de inferencia LISA."
+  (setq *audit-violations* nil)
+  (lisa:reset)
+  (let ((fact-data
+          `(code-commit-analysis
+            (commit-uuid ,uuid)
+            (symbol-name ,name)
+            (body-length ,body-length)
+            (cyclomatic-complexity ,cyclomatic-complexity)
+            (magic-numbers ',magic-numbers)
+            (is-redefining-core-symbol-p ,is-redefining-core-symbol-p)
+            (uses-unsafe-execution-p ,uses-unsafe-execution-p)
+            (contains-heavy-consing-loop-p ,contains-heavy-consing-loop-p)
+            (has-docstring-p ,has-docstring-p)
+            (unused-parameters ,unused-parameters)
+            (uses-implementation-specific-symbols-p ,uses-implementation-specific-symbols-p))))
+    (eval `(lisa:assert ,fact-data)))
+  (lisa:run))
 
