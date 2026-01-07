@@ -219,19 +219,6 @@
       (reverse result))))
 
 
-(defun find-unused-parameters (definition-form)
-  "Finds parameters in a function definition that are declared but not used."
-  (let* ((params (get-parameters-list definition-form))
-         (body (get-body-forms definition-form))
-         (used-symbols (find-used-symbols body))
-         (unused-params nil))
-    (dolist (param params)
-      (when (and (symbolp param)
-                 (not (gethash param used-symbols)))
-        (push param unused-params)))
-    (reverse unused-params)))
-
-
 (defun find-used-symbols (form)
   "Recursively traverses a form to find and count all symbols used."
   (let ((used-symbols (make-hash-table :test 'eq)))
