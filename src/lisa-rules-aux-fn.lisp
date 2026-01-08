@@ -282,6 +282,16 @@
 
 
 
+(defun clean-critic-report (raw-report)
+  "Removes decorative dash lines and white space from lisp-critic."
+  (let* ((no-dashes (cl-ppcre:regex-replace-all "-{3,}" raw-report "")) ;; Elimina 3 o más guiones seguidos
+         (clean-text (string-trim '(#\Space #\Newline #\Tab) no-dashes)))
+    (if (plusp (length clean-text))
+        clean-text
+        nil)))
+
+
+
 
 
 (defun analyze-commit-and-assert (&key uuid name has-docstring-p body-length
@@ -290,7 +300,8 @@
 				    is-redefining-core-symbol-p
 				    uses-unsafe-execution-p
 				    contains-heavy-consing-loop-p
-				    uses-implementation-specific-symbols-p)
+				    uses-implementation-specific-symbols-p
+				    style-critiques)
   "Analiza los datos de un commit y aserta un hecho para el motor de inferencia LISA."
   (setq *audit-violations* nil)
   (lisa:reset)
@@ -306,7 +317,10 @@
             (contains-heavy-consing-loop-p ,contains-heavy-consing-loop-p)
             (has-docstring-p ,has-docstring-p)
             (unused-parameters ,unused-parameters)
-            (uses-implementation-specific-symbols-p ,uses-implementation-specific-symbols-p))))
+            (uses-implementation-specific-symbols-p ,uses-implementation-specific-symbols-p)
+	    (style-critiques ,style-critiques))))
     (eval `(lisa:assert ,fact-data)))
   (lisa:run))
+
+
 

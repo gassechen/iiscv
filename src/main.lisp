@@ -61,7 +61,8 @@
 	 (uses-unsafe-execution-p (find-unsafe-execution-forms definition-form))
 	 (contains-heavy-consing-loop-p (contains-heavy-consing-loop-p definition-form))
 	 (uses-implementation-specific-symbols-p (find-implementation-specific-symbols definition-form))
-	 (commit-uuid (format nil "~a" (uuid:make-v4-uuid))))
+	 (commit-uuid (format nil "~a" (uuid:make-v4-uuid)))
+         (style-critiques (clean-critic-report (with-output-to-string (*standard-output*)(lisp-critic:critique-definition definition-form)))))
 
     ;; Run the analysis. The global variable will be populated.
     (analyze-commit-and-assert
@@ -75,7 +76,8 @@
      :is-redefining-core-symbol-p is-redefining-core-symbol-p
      :uses-unsafe-execution-p uses-unsafe-execution-p
      :contains-heavy-consing-loop-p contains-heavy-consing-loop-p
-     :uses-implementation-specific-symbols-p uses-implementation-specific-symbols-p)
+     :uses-implementation-specific-symbols-p uses-implementation-specific-symbols-p
+     :style-critiques style-critiques)
 
     ;; Package all data, including LISA's results.
     (let ((commit-data `(:uuid ,commit-uuid
@@ -294,105 +296,16 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;;;;;;;;;;;;;;;;;;;;;; GEMINI BINDS  ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(defun start-ai-programmer (initial-task)
-  "Inicia un bucle donde Gemini CLI programa en el REPL de IISCV,
-   captura errores y se autocorrige."
-  (format t "~%=== Iniciando Programador IA en IISCV ===~%")
-  (format t "Tarea inicial: ~A~%~%" initial-task)
-  
-  (let ((current-prompt initial-task))
-    (loop
-      (handler-bind
-          ((error
-            (lambda (e)
-              ;; Cuando ocurra CUALQUIER error, no entres al debugger.
-              ;; En su lugar, captura el error y prepáralo para Gemini.
-              (let ((error-context (format nil "~
-El código anterior falló.
-ERROR: ~A
-TIPO DE ERROR: ~A
-Por favor, proporciona únicamente el código Lisp corregido para que lo intente de nuevo.
-Asegúrate de que la corrección solucione este error específico."
-                                           e
-                                           (type-of e))))
-                (format t "~%¡ERROR CAPTURADO! ~A~%" e)
-                (setf current-prompt error-context)
-                (invoke-restart 'continue))))) ; Reinicia el loop con el nuevo prompt
-        
-        ;; --- Bucle principal ---
-        (let* ((gemini-response (uiop:run-program `("gemini" "-p" ,current-prompt) :output :string))
-               (code-to-eval (extract-lisp-code gemini-response)))
-          
-          (cond
-            ((null code-to-eval)
-             (format t "Gemini no proporcionó código. Tal vez la tarea está completada.~%")
-             (return))
-            
-            (t
-             (format t "~%> Gemini sugiere:~%~A~%~%" code-to-eval)
-             (format t "> Evaluando con IISCV...~%")
-             
-             ;; Intenta evaluar el código. Si hay un error, handler-bind lo capturará.
-             (let ((result (eval (read-from-string code-to-eval))))
-               (format t "~% ÉXITO. Código evaluado.~%")
-               (format t "Resultado: ~A~%~%" result)
-               
-               ;; Si tuvo éxito, registra el commit y pide el siguiente paso.
-               (make-atomic-commit (read-from-string code-to-eval))
-               (format t "Commit atómico registrado en IISCV.~%")
-               (format t "~%Tarea completada o siguiente paso? (Escribe 'siguiente: [tu nueva tarea]' o 'terminar'): ")
-               (let ((user-input (read-line)))
-                 (if (string= user-input "terminar")
-                     (progn
-                       (format t "~%=== Programador IA detenido. ===~%")
-                       (return))
-                     (setf current-prompt user-input)))))))))))
-
-
 ;; Función auxiliar para extraer solo el código Lisp de la respuesta de Gemini
-;;(defun extract-lisp-code (response)
-;;  "Extrae el primer bloque de código Lisp de una respuesta de texto."
-;;  (let* ((start (search "```lisp" response)))
-;;    (when start
-;;      (let* ((code-start (+ start 7))
-;;            (end (search "```" response :start2 code-start)))
-;;        (when end
-;;          (subseq response code-start end))))))
+(defun extract-lisp-code (response)
+  "Extrae el primer bloque de código Lisp de una respuesta de texto."
+  (let* ((start (search "```lisp" response)))
+    (when start
+      (let* ((code-start (+ start 7))
+             (end (search "```" response :start2 code-start)))
+        (when end
+          (subseq response code-start end))))))
 
-
-
-(defun start-ai-programmer-debug (initial-task)
-  "Versión de depuración para ver la respuesta cruda de Gemini."
-  (format t "~%=== Iniciando Programador IA (MODO DEBUG) ===~%")
-  (format t "Tarea inicial: ~A~%~%" initial-task)
-  
-  (let* ((current-prompt initial-task)
-         (gemini-response (uiop:run-program `("gemini" "-p" ,current-prompt) :output :string :error-output :string)))
-    
-    (format t "--- RESPUESTA CRUDA DE GEMINI ---~%")
-    (format t "~A~%" gemini-response)
-    (format t "--------------------------------~%")
-    
-    ;; Intentamos extraer el código de varias maneras
-    (let ((code-to-eval (or (extract-lisp-code gemini-response)
-                            (extract-code-any-markdown gemini-response)
-                            (extract-plain-code gemini-response))))
-      
-      (cond
-        ((null code-to-eval)
-         (format t "No se pudo extraer código Lisp de la respuesta.~%"))
-        (t
-         (format t "~%> Código extraído con éxito:~%~A~%~%" code-to-eval)
-         (format t "> Evaluando con IISCV...~%")
-         (handler-case
-             (let ((result (eval (read-from-string code-to-eval))))
-               (format t "~% ÉXITO. Código evaluado.~%")
-               (format t "Resultado: ~A~%~%" result)
-               (iiscv:make-atomic-commit (read-from-string code-to-eval))
-               (format t "Commit atómico registrado en IISCV.~%"))
-           (error (e)
-             (format t "~%¡ERROR CAPTURADO! ~A~%" e)
-             (format t "Tipo de error: ~A~%" (type-of e)))))))))
 
 ;; Funciones auxiliares más robustas para extraer código
 (defun extract-code-any-markdown (response)
@@ -415,9 +328,59 @@ Asegúrate de que la corrección solucione este error específico."
     (error () nil)))
 
 
+(defun start-ai-programmer-debug (initial-task)
+  "Versión corregida: Evalúa todas las formas y registra cada una en IISCV."
+  (format t "~%=== Iniciando Programador IA (MODO DEBUG ROBUSTO) ===~%")
+  (funcall *correction-attempt-counter* :action :increment)
+  
+  (let* ((full-prompt (format nil "~A~%~%TASK:~%~A" *iiscv-system-prompt* initial-task))
+         (gemini-response (uiop:run-program `("gemini" "-p" ,full-prompt) 
+                                            :output :string 
+                                            :error-output :string)))
+    
+    (format t "--- RESPUESTA CRUDA DE GEMINI ---~%~A~%--------------------------------~%" gemini-response)
+    
+    (let* ((sanitized-code (sanitize-gemini-response gemini-response)))
+      (unless sanitized-code
+        (format t "Error: No se pudo extraer o sanear el código Lisp.~%")
+        (return-from start-ai-programmer-debug nil))
+      
+      (format t "--- CÓDIGO SANEADO PARA EVALUAR ---~%~A~%-----------------------------------~%" sanitized-code)
+      
+      (handler-case
+          (progn
+            (format t "> Evaluando en imagen viva...~%")
+            ;; Usamos el string directamente con el Reader Loop
+            (with-input-from-string (s sanitized-code)
+              (loop for form = (read s nil :eof)
+                    until (eq form :eof)
+                    do (let ((result (eval form)))
+                         (format t "~% Evaluando forma: ~S -> ~A~%" form result)
+                         ;; IMPORTANTE: Registramos cada forma en el historial
+                         (make-atomic-commit form))))
+            ;; Una vez evaluado todo, disparamos la auditoría
+            (check-violations))
+        
+        ;; Corregido: 'e' es la variable que captura el error
+        (error (e)
+          (format t "~%¡ERROR EN EVALUACIÓN! ~A~%Tipo: ~A~%" e (type-of e)))))))
+
+
 (defun check-violations ()
   "Revisa si hay violaciones y, si las hay, inicia un ciclo de corrección."
   (when *audit-violations*
+
+    (let ((max-attempts 10)) 
+	   
+        
+        ;; --- Condición de salida ---
+        (when (>= (funcall *correction-attempt-counter* :action :get) max-attempts)
+          (format t "~%=== LÍMITE DE INTENTOS ALCANZADO (~A). Deteniendo. ===~%" max-attempts)
+          (funcall *correction-attempt-counter* :action :reset)
+          (return-from check-violations nil)))
+
+    
+    
     (let* ((first-violation (caar *audit-violations*)) ; Obtiene la primera violación como string
            (start-pos (search "found in '" first-violation))
            (end-pos (when start-pos (search "'" first-violation :start2 (+ start-pos 10))))
@@ -448,54 +411,35 @@ Function to fix:
               (format t "~%> Violaciones detectadas. Iniciando corrección automática para ~A...~%" function-name)
               (format t "> Enviando a Gemini el siguiente prompt de corrección:~%~A~%" correction-prompt)
 	      
-              ;;(start-ai-programmer-debug correction-prompt)
+              (start-ai-programmer-debug correction-prompt)
 	      )))))))
 
 
-;;;;;;;;;;;;;
 
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;;;;;;;;;;;;;;;;;;;;;;;; AI PROGRAMMER INTEGRADO ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-;; --- Función auxiliar robusta para extraer código de la respuesta de Gemini ---
-(defun extract-code-robust (response)
-  "Intenta extraer código Lisp de una respuesta de texto de forma robusta."
-  (or
-   ;; 1. Busca un bloque ```lisp
-   (let* ((start (search "```lisp" response)))
-     (when start
-       (let* ((code-start (+ start 7))
-             (end (search "```" response :start2 code-start)))
-         (when end
-           (subseq response code-start end)))))
-   ;; 2. Busca cualquier bloque ``` (ej. ```commonlisp)
-   (let* ((start (search "```" response)))
-     (when start
-       (let* ((lang-start (+ start 3))
-             (newline-pos (position #\Newline response :start lang-start))
-             (code-start (when newline-pos (+ newline-pos 1)))
-             (end (search "```" response :start2 (or code-start lang-start))))
-         (when (and code-start end)
-           (subseq response code-start end)))))
-   ;; 3. Si todo lo demás falla, asume que toda la respuesta es código Lisp SOLO si es una única forma válida.
-   (handler-case
-       (with-input-from-string (s response)
-         (let ((form (read s)))
-           ;; Verifica que no quede nada de texto después de la forma.
-           (when (null (peek-char nil s nil))
-             (prin1-to-string form))))
-     (error ())))) ; Si falla, devuelve nil.
+(defun sanitize-gemini-response (response)
+  "Limpia la respuesta de Gemini eliminando formas no deseadas como (in-package ...)."
+  (let* ((code-block (or (extract-lisp-code response)
+                          (extract-code-any-markdown response)
+                          (extract-plain-code response))))
+    (when code-block
+      ;; Usa una regex para encontrar y eliminar cualquier forma (in-package ...)
+      (cl-ppcre:regex-replace-all "\\(\\s*in-package\\s*[^)]+\\)\\s*" code-block ""))))
 
 
 
 
-
-
-
-
-
+(defvar *correction-attempt-counter*
+  (let ((count 0))
+    (lambda (&key (action :get))
+      "Closure para gestionar el contador de intentos de corrección.
+       ACTION puede ser :GET, :INCREMENT o :RESET."
+      (case action
+        (:get count)
+        (:increment (incf count))
+        (:reset (setf count 0))
+        (otherwise
+	 (error "Acción inválida para el contador: ~A. Usa :GET, :INCREMENT o :RESET."
+		action))))))
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; AUX FN COMMITS ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;

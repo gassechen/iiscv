@@ -29,7 +29,8 @@
   (slot uses-unsafe-execution-p) 
   (slot uses-implementation-specific-symbols-p) 
   (slot is-redefining-core-symbol-p) 
-  (slot contains-heavy-consing-loop-p))
+  (slot contains-heavy-consing-loop-p)
+  (slot style-critiques))
 
 
 ;;;   "Template for facts that represent a violation of a quality rule."
@@ -64,7 +65,7 @@
   =>
   (assert (violation (rule-id "1.1")
             (severity :error)
-            (message (format nil "High cyclomatic complexity (~a) detected in '~a'. Consider refactoring." ?cc ?name)))))
+            (message (format nil "High cyclomatic complexity (~a) found in '~a'. Consider refactoring." ?cc ?name)))))
 
 
 ;;; "Fires when a function's body length exceeds the threshold (e.g., 25)."
@@ -75,7 +76,7 @@
   =>
   (assert (violation (rule-id "1.2")
             (severity :warning)
-            (message (format nil "Symbol '~a' exceeds the 25-line limit (length: ~a)." ?name ?len)))))
+            (message (format nil "Symbol found in '~a' exceeds the 25-line limit (length: ~a)." ?name ?len)))))
 
 
 
@@ -100,7 +101,7 @@
   =>
   (assert (violation (rule-id "2.2")
 	    (severity :error)
-	    (message (format nil  "Attempt to redefine core symbol '~a'. This is highly dangerous." ?name)))))
+	    (message (format nil  "Attempt to redefine core symbol found in '~a'. This is highly dangerous." ?name)))))
 
 
 ;;;
@@ -114,7 +115,7 @@
   =>
   (assert (violation (rule-id "3.1")
                       (severity :error)
-                      (message (format nil  "Unsafe command execution detected in '~a'. Ensure all inputs are sanitized." ?name)))))
+                      (message (format nil  "Unsafe command execution found in '~a'. Ensure all inputs are sanitized." ?name)))))
 
 
 ;;;
@@ -128,7 +129,7 @@
   =>
   (assert (violation (rule-id "4.1")
                       (severity :warning)
-                      (message (format nil  "Heavy consing detected in a loop within '~a'. This may impact performance." ?name)))))
+                      (message (format nil  "Heavy consing detected in a loop found in '~a'. This may impact performance." ?name)))))
 
 
 ;;;
@@ -141,7 +142,7 @@
   =>
   (assert (violation (rule-id "5.1")
                       (severity :info)
-                      (message (format nil  "Symbol '~a' is missing a docstring." ?name)))))
+                      (message (format nil  "Symbol found in '~a' is missing a docstring." ?name)))))
 
 
 
@@ -153,7 +154,7 @@
   =>
   (assert (violation (rule-id "5.2")
             (severity :warning)
-            (message (format nil "Unused parameters ~a detected in '~a'." ?params ?name)))))
+            (message (format nil "Unused parameters ~a found in '~a'." ?params ?name)))))
 
 ;;;
 ;;; 6. Portability (Portabilidad)
@@ -166,10 +167,29 @@
   =>
   (assert (violation (rule-id "6.1")
                       (severity :warning)
-                      (message (format nil  "Use of non-portable, implementation-specific symbols detected in '~a'." ?name)))))
+            (message (format nil  "Use of non-portable, implementation-specific symbols found in '~a'." ?name)))))
 
 
 
+;;;
+;;; 10. Lisp critic
+;;; "Fire lisp critic style"
+
+(defrule rule-idiomatic-lisp-style ()
+  (code-commit-analysis (symbol-name ?name)
+                        (style-critiques ?c))
+  (test (not (null ?c)))
+  =>
+  (assert (violation (rule-id "IDIOMATIC-01")
+                     (severity :warning)
+                     (message (format nil "Style recommendations found in '~a':~%~a" ?name ?c)))))
+
+
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;; TEST RULES ;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defun test-all-rules ()
   "Runs a comprehensive test of all quality auditor rules."
   (lisa-lisp:reset)
@@ -276,7 +296,23 @@
                      (is-redefining-core-symbol-p nil)
                      (uses-unsafe-execution-p nil)
                      (contains-heavy-consing-loop-p nil)
-                     (uses-implementation-specific-symbols-p t)))
+                      (uses-implementation-specific-symbols-p t)))
+
+
+  (lisa-lisp:assert (code-commit-analysis
+                      (commit-uuid "test-rule-6-1")
+                      (symbol-name "sbcl-specific-function")
+                      (body-length 0)
+                      (cyclomatic-complexity 0)
+                      (magic-numbers nil)
+                      (has-docstring-p t)
+                      (is-redefining-core-symbol-p nil)
+                      (uses-unsafe-execution-p nil)
+                      (contains-heavy-consing-loop-p nil)
+                      (uses-implementation-specific-symbols-p t)
+		      (style-critiques "Don't use SETQ inside DOLIST. Use INCF instead.")))
+
+  
 
   ;; Run the inference engine
   (lisa-lisp:run)
