@@ -860,4 +860,10 @@ Function to fix:
 
 
 
+ (defun test-de-integracion () (+ 2 2 2))
 
+(defun test-de-integracion-1 () (+ 2 2 2))
+
+(defun test-de-integracion-1 ()
+  "Una función de prueba que suma tres veces el número dos."
+  (+ 2 2 2))

@@ -1,0 +1,48 @@
+* Script: setup-iotlisp.sh
+
+**Propósito:** Crear usuario, instalar Quicklisp, clonar IISCV y generar imagen de desarrollo.
+
+---
+
+**Ejecución:**
+
+#+BEGIN_SRC bash
+sudo ./setup-iotlisp.sh
+#+END_SRC
+
+**El script hace 6 pasos:**
+
+| Paso | Acción |
+|------|---------|
+| 1/6 | Crea usuario `iotlispuser` |
+| 2/6 | Instala Quicklisp (con sbcl) |
+| 3/6 | Git clone de IISCV a `quicklisp/local-projects/iiscv` |
+| 4/6 | Ejecuta SBCL con Quicklisp, carga IISCV con quickload y guarda imagen como `dev.core` con REPL de IISCV como toplevel |
+| 5/6 | Configura permisos de ejecución de la imagen |
+| 6/6 | Configura `dev.core` como shell de login del usuario |
+
+---
+
+**Resultado:**
+
+```bash
+# Al hacer login:
+ssh iotlispuser@raspberrypi
+
+# Output:
+IISCV-R>
+```
+
+**La imagen `dev.core` contiene:**
+- Quicklisp cargado
+- IISCV cargado
+- REPL de IISCV listo para usar
+
+---
+
+**Ubicación de archivos:**
+- Usuario: `iotlispuser`
+- Home: `/home/iotlispuser/`
+- Quicklisp: `/home/iotlispuser/quicklisp/`
+- IISCV: `/home/iotlispuser/quicklisp/local-projects/iiscv/`
+- Imagen: `/home/iotlispuser/dev.core`

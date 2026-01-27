@@ -1,0 +1,71 @@
+* IISCV: Setup Mínimo de Linux
+
+**Propósito:** Crear un entorno de desarrollo Lisp con IISCV como shell de login.
+
+---
+
+**Instalación (un solo comando):**
+
+#+BEGIN_SRC bash
+sudo ./linux-setup/setup-iotlisp.sh
+#+END_SRC
+
+**El script hace automáticamente:**
+
+| Paso | Acción |
+|------|---------|
+| 1 | Crea usuario `iotlispuser` |
+| 2 | Instala Quicklisp (usando sbcl) |
+| 3 | Git clone de IISCV a `quicklisp/local-projects/iiscv` |
+| 4 | Genera imagen `dev.core` con Quicklisp + IISCV cargados |
+| 5 | Configura permisos de la imagen |
+| 6 | Configura `dev.core` como shell de login |
+
+---
+
+**Uso:**
+
+```bash
+# Login por SSH
+ssh iotlispuser@<ip-de-la-maquina>
+
+# Aparece directamente:
+IISCV-R>
+```
+
+---
+
+**Arquetura del directorio linux-setup:**
+
+```
+linux-setup/
+└── setup-iotlisp.sh       ← Script único de configuración
+```
+
+---
+
+**Resultados:**
+
+- **Usuario:** `iotlispuser`
+- **Home:** `/home/iotlispuser/`
+- **Quicklisp:** `/home/iotlispuser/quicklisp/`
+- **IISCV:** `/home/iotlispuser/quicklisp/local-projects/iiscv/`
+- **Imagen:** `/home/iotlispuser/dev.core`
+- **Shell:** IISCV REPL
+
+---
+
+**Archivos del proyecto IISCV:**
+
+```
+iiscv/
+├── linux-setup/              ← Scripts de configuración
+│   └── setup-iotlisp.sh
+├── src/                     ← Código fuente de IISCV
+│   ├── main.lisp
+│   ├── lisa-rules.lisp
+│   └── lisa-rules-aux-fn.lisp
+├── pi-gpio-dsl/             ← Ejemplo de caso de uso
+│   └── README.org
+└── iiscv.asd              ← Definición del sistema
+```
