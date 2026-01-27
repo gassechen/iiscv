@@ -673,6 +673,27 @@ Function to fix:
   #+ecl (ext:save-executable path :toplevel #'iiscv-repl))
 
 
+(defun save-development-image-with-mcp (path)
+  "Guarda una imagen de desarrollo completa que arranca automáticamente el servidor MCP.
+   Solo permite el guardado si no hay cambios atómicos pendientes."
+  (when (has-pending-changes-p)
+    (format t "~%ERROR: No se puede salvar la imagen. Hay cambios atómicos pendientes.~%")
+    (format t "Por favor, consolida tus cambios con (make-human-commit \"...\") antes de continuar.~%")
+    (return-from save-development-image-with-mcp nil))
+  
+  (let ((mcp-func (find-symbol "RUN-SERVER" :cl-mcp-server)))
+    (if mcp-func
+        (progn
+          (format t "~%[IISCV] Persistiendo cerebro industrial con servidor MCP...~%")
+          (format t "[IISCV] Ruta: ~A~%" path)
+          #+sbcl (sb-ext:save-lisp-and-die path 
+                                           :executable t 
+                                           :toplevel (symbol-function mcp-func))
+          #-(or sbcl) (error "Función de guardado solo implementada para SBCL por ahora."))
+        (error "Error: No se encontró el paquete CL-MCP-SERVER o la función RUN-SERVER."))))
+
+
+
 (defun save-production-image (path)
   "Creates a lightweight production image by rebuilding the system from human commits.
    This approach is non-destructive and more robust."
