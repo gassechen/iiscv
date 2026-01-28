@@ -471,7 +471,7 @@
   `(rove:deftest ,(intern (format nil "COMMIT-~A-TEST" commit-uuid) "KEYWORD")
      (rove:ok (eval ',form) "The form should evaluate without error.")))
 
-
+;; path de proyecto
 (defun make-file-commit (commit-uuid form)
   "Writes a Rove-compatible test file for a commit."
   (let* ((filepath (merge-pathnames (format nil "audits/~A.lisp" commit-uuid)
