@@ -17,6 +17,7 @@
 ;;;
 ;;;  "Template for facts representing the analysis of a single code commit."
 
+
 (deftemplate code-commit-analysis ()
   (slot commit-uuid)          
   (slot symbol-name)          
@@ -30,7 +31,8 @@
   (slot uses-implementation-specific-symbols-p) 
   (slot is-redefining-core-symbol-p) 
   (slot contains-heavy-consing-loop-p)
-  (slot style-critiques))
+  (slot style-critiques)
+  (slot logical-violations))
 
 
 ;;;   "Template for facts that represent a violation of a quality rule."
@@ -182,7 +184,25 @@
   =>
   (assert (violation (rule-id "IDIOMATIC-01")
                      (severity :warning)
-                     (message (format nil "Style recommendations found in '~a':~%~a" ?name ?c)))))
+            (message (format nil "Style recommendations found in '~a':~%~a" ?name ?c)))))
+
+
+
+;;;
+;;; 11. Prolog
+;;; Integrity (Integrity Axiom 1 - Hoare/Orphan References)
+;;;
+;;; "Fires when Prolog detects a reference to a function not defined in the image."
+
+(defrule rule-11-1-logical-integrity-orphan ()
+  (code-commit-analysis (symbol-name ?name)
+                        (logical-violations ?c))
+  (test (not (null ?c)))
+  =>
+  (dolist (err ?c)
+    (assert (violation (rule-id "11.1")
+                       (severity :error)
+                       (message (format nil "Logic Integrity Violation in '~a': ~a" ?name err))))))
 
 
 
@@ -311,6 +331,24 @@
                       (contains-heavy-consing-loop-p nil)
                       (uses-implementation-specific-symbols-p t)
 		      (style-critiques "Don't use SETQ inside DOLIST. Use INCF instead.")))
+
+
+  (lisa-lisp:assert (code-commit-analysis
+                      (commit-uuid "test-rule-11-1")
+                      (symbol-name "broken-logic-function")
+                      (body-length 5)
+                      (cyclomatic-complexity 1)
+                      (magic-numbers nil)
+                      (is-redefining-core-symbol-p nil)
+                      (uses-unsafe-execution-p nil)
+                      (contains-heavy-consing-loop-p nil)
+                      (has-docstring-p t)
+                      (unused-parameters nil)
+                      (uses-implementation-specific-symbols-p nil)
+                      (style-critiques nil)
+                      ;; Inyectamos los errores que normalmente vendrían de run-prolog-integrity-audit
+                      (logical-violations '("ORPHAN-REFERENCE: UNDEFINED-FUNC-X" 
+                                            "ARITY-MISMATCH: + expected 2+, got 1"))))
 
   
 

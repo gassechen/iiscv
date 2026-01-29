@@ -291,6 +291,47 @@
         nil)))
 
 
+(defvar *logic-audit-results* nil 
+  "Temporary buffer to store Prolog findings during a commit audit.")
+
+
+(defun run-prolog-integrity-audit (name form)
+  "Retorna una lista de errores lógicos encontrados por Prolog para que LISA los procese."
+  (prolog:clear-predicate 'prolog:depends-on)
+  (prolog:clear-predicate 'prolog:actual-call-arity)
+  (prolog:clear-predicate 'prolog:expected-arity)
+
+  ;; 1. Extraemos los hechos (ya validamos que el Walker funciona)
+  (walk-and-assert-facts name form)
+
+  ;; 2. Inyectamos aridades para el chequeo de Hoare
+  (let ((clauses (get 'prolog:depends-on 'prolog:clauses)))
+    (dolist (clause clauses)
+      (let* ((head (first clause))
+             (func-dep (third head))
+             (arity (get-expected-arity-safe func-dep)))
+        (when arity
+          (prolog:add-clause `((prolog:expected-arity ,func-dep ,arity)))))))
+
+  ;; 3. Recolectamos TODAS las inconsistencias en una lista para LISA
+  (let ((errors '()))
+    ;; Usamos un bucle para extraer cada inconsistencia que Prolog encuentre
+    ;; hasta que devuelva fail.
+    (let ((puntos-de-eleccion (prolog:prove-all 
+                               `((prolog:inconsistency ,name ?tipo ?detalle)) 
+                               prolog:no-bindings)))
+      (unless (eq puntos-de-eleccion prolog:fail)
+        ;; Si hay al menos uno, lo agregamos y podríamos extender esto 
+        ;; para buscar más si tu prove-all lo permite, pero por ahora 
+        ;; recolectamos el reporte crítico.
+        (let ((t-err (prolog:subst-bindings puntos-de-eleccion '?tipo))
+              (d-err (prolog:subst-bindings puntos-de-eleccion '?detalle)))
+          (push (format nil "~A: ~A" t-err d-err) errors))))
+    
+    ;; Retornamos la lista (será el ?c en tu regla de LISA)
+    errors))
+
+
 
 
 
@@ -301,7 +342,9 @@
 				    uses-unsafe-execution-p
 				    contains-heavy-consing-loop-p
 				    uses-implementation-specific-symbols-p
-				    style-critiques)
+				    style-critiques
+				    logical-violations)
+  
   "Analiza los datos de un commit y aserta un hecho para el motor de inferencia LISA."
   (setq *audit-violations* nil)
   (lisa:reset)
@@ -316,9 +359,10 @@
             (uses-unsafe-execution-p ,uses-unsafe-execution-p)
             (contains-heavy-consing-loop-p ,contains-heavy-consing-loop-p)
             (has-docstring-p ,has-docstring-p)
-            (unused-parameters ,unused-parameters)
+            (unused-parameters ',unused-parameters)
             (uses-implementation-specific-symbols-p ,uses-implementation-specific-symbols-p)
-	    (style-critiques ,style-critiques))))
+	    (style-critiques ,style-critiques)
+	    (logical-violations ',logical-violations))))
     (eval `(lisa:assert ,fact-data)))
   (lisa:run))
 
