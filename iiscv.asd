@@ -7,8 +7,6 @@
                 :components
                 ((:file "main")
 		 (:file "lisa-rules")
-		 (:file "lisp-prolog")
-		 (:file "lisp-prolog-rules")
 		 (:file "lisa-rules-aux-fn"))))
   :description ""
   :in-order-to ((test-op (test-op "iiscv/tests"))))

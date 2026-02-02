@@ -64,7 +64,7 @@
 	 (uses-implementation-specific-symbols-p (find-implementation-specific-symbols definition-form))
 	 (commit-uuid (format nil "~a" (uuid:make-v4-uuid)))
          (style-critiques (clean-critic-report (with-output-to-string (*standard-output*)(lisp-critic:critique-definition definition-form))))
-	 (logical-violations (run-prolog-integrity-audit name definition-form)))
+	 )
 	 
 
     ;; Run the analysis. The global variable will be populated.
@@ -81,7 +81,7 @@
      :contains-heavy-consing-loop-p contains-heavy-consing-loop-p
      :uses-implementation-specific-symbols-p uses-implementation-specific-symbols-p
      :style-critiques style-critiques
-     :logical-violations logical-violations)
+     )
 
     ;; Package all data, including LISA's results.
     (let ((commit-data `(:uuid ,commit-uuid

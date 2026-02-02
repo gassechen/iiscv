@@ -32,7 +32,7 @@
   (slot is-redefining-core-symbol-p) 
   (slot contains-heavy-consing-loop-p)
   (slot style-critiques)
-  (slot logical-violations))
+  )
 
 
 ;;;   "Template for facts that represent a violation of a quality rule."
@@ -185,24 +185,6 @@
   (assert (violation (rule-id "IDIOMATIC-01")
                      (severity :warning)
             (message (format nil "Style recommendations found in '~a':~%~a" ?name ?c)))))
-
-
-
-;;;
-;;; 11. Prolog
-;;; Integrity (Integrity Axiom 1 - Hoare/Orphan References)
-;;;
-;;; "Fires when Prolog detects a reference to a function not defined in the image."
-
-(defrule rule-11-1-logical-integrity-orphan ()
-  (code-commit-analysis (symbol-name ?name)
-                        (logical-violations ?c))
-  (test (not (null ?c)))
-  =>
-  (dolist (err ?c)
-    (assert (violation (rule-id "11.1")
-                       (severity :error)
-                       (message (format nil "Logic Integrity Violation in '~a': ~a" ?name err))))))
 
 
 
