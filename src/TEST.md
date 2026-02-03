@@ -181,7 +181,7 @@ After running all the above, run this to see the full forensic audit trail:
 
 **Every commit in that list should have its corresponding Rule IDs attached.** If something didn't trigger, it means a sensor in `lisa-rules-aux-fn.lisp` needs a slight calibration. How did the results look?
 
-
+```lisp
 CL-USER> (ql:quickload :iiscv)
 To load "iiscv":
   Load 1 ASDF system:
@@ -638,3 +638,4 @@ flexible.
 flexible.
                         Symbol 'BASE-SERVICE' is missing a docstring.)
 NIL
+```
