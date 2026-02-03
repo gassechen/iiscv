@@ -17,6 +17,8 @@
                body)))
         (t nil)))
 
+
+
 (defun calculate-body-length (definition-form)
   "Calculates the approximate length of a function's body by counting top-level forms."
   (let ((body-forms (get-body-forms definition-form)))
@@ -116,11 +118,14 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (defun get-docstring (definition-form)
-  "Extracts the docstring from a definition form, returning NIL if none exists."
-  (let ((docstring-candidate (nthcdr 2 definition-form)))
+  "Extracts the docstring from a definition form, correctly skipping the argument list."
+  (let ((docstring-candidate (if (member (car definition-form) '(defun defmacro))
+                                 (nthcdr 3 definition-form) 
+                                 (nthcdr 2 definition-form)))) 
     (loop for form in docstring-candidate
           when (stringp form) return form
           when (and (listp form) (not (eq (car form) 'declare))) return nil)))
+
 
 (defun has-dead-code-p (form)
   "Detects unreachable logic branches based on constant predicates."
@@ -137,12 +142,20 @@
       found)))
 
 (defun is-recursive-p (name form)
-  "NASA Rule 1: Correctly detects if the function calls itself."
-  (let* ((calls (extract-calls form name)) ;; <--- IMPORTANTE: pasar 'name'
-         (fqn (if (symbolp name)
-                  (format nil "~A::~A" (package-name (symbol-package name)) (symbol-name name))
-                  (princ-to-string name))))
-    (member fqn calls :test #'equal)))
+  "NASA Rule 1: Detects if the function calls itself by scanning the body independently."
+  (let ((found nil)
+        ;; Normalizamos el nombre a símbolo para comparar
+        (target-sym (if (symbolp name) 
+                        name 
+                        (find-symbol (string-upcase (princ-to-string name)) *package*))))
+    (labels ((scan (x)
+               (cond ((listp x)
+                      (if (eq (car x) target-sym)
+                          (setf found t)
+                          (mapc #'scan x))))))
+      ;; Escaneamos solo el cuerpo (sin el nombre ni los parámetros)
+      (scan (get-body-forms form))
+      found)))
 
 
 (defun count-assertions (form)
@@ -166,19 +179,20 @@
       (scan form)
       found-unbounded)))
 
+
 (defun extract-mutated-symbols (form)
-  "Recursively detects state mutation (setf, setq, etc.)."
+  "Recursively detects symbols modified by destructive operators (setf, incf, etc.)."
   (let ((mutated '())
         (ops '(setf setq incf decf push pop nconc)))
     (labels ((scan (x)
                (cond ((listp x)
                       (when (member (car x) ops)
-                        (pushnew (format nil "~A" (second x)) mutated :test #'equal))
-                      (mapc #'scan (cdr x))))))
+                        (let ((target (second x)))
+                          (when (symbolp target)
+                            (pushnew (format nil "~A" target) mutated :test #'equal))))
+                      (mapc #'scan x)))))
       (scan form)
       mutated)))
-
-
 
 (defun is-lisp-predicate-p (name)
   "Convention: Checks if a function name follows the predicate naming convention (-P)."
@@ -200,20 +214,21 @@
       (scan form)
       found)))
 
+
 (defun find-implementation-specific-symbols (form)
-  "Finds symbols belonging to implementation-specific packages."
-  (let ((found nil)
-        (standard-packages '("COMMON-LISP" "KEYWORD" "IISCV" "CL-USER")))
-    (labels ((scan (subform)
-               (cond ((atom subform)
-                      (when (and (symbolp subform) (not (keywordp subform)))
-                        (let* ((pkg (symbol-package subform))
-                               (pkg-name (and pkg (package-name pkg))))
-                          (when (and pkg (not (member pkg-name standard-packages :test #'string-equal)))
-                            (setf found t)))))
-                     ((listp subform) (dolist (item subform) (scan item))))))
-      (scan form)
-      found)))
+  "Detects symbols from internal implementation packages (like SB-SYS, SB-EXT)."
+  (let ((flat (alexandria:flatten form))
+        (found nil))
+    (dolist (sym flat)
+      (when (and (symbolp sym) (not (keywordp sym)))
+        (let* ((pkg (symbol-package sym))
+               (pname (if pkg (package-name pkg) "")))
+          ;; If package starts with SB-, ASDF, or other internals
+          (when (or (search "SB-" pname) (search "ASDF" pname) (search "UIOP" pname))
+            (unless (member pname '("COMMON-LISP" "CL-USER" "IISCV") :test #'string=)
+              (setf found t))))))
+    found))
+
 
 (defun contains-heavy-consing-loop-p (definition-form)
   "Checks for allocation (consing) inside loops."
@@ -291,7 +306,6 @@
 				    unused-parameters is-redef calls
 				    uses-unsafe-execution-p contains-heavy-consing-loop-p
 				    uses-implementation-specific-symbols-p style-critiques status
-                                    ;; NASA & Logic keys
                                     is-predicate has-dead-code is-recursive 
                                     assertion-count has-unbounded-loop
                                     has-side-effects returns-constant-nil)
@@ -314,7 +328,6 @@
 	    (style-critiques ,style-critiques)
 	    (calls ',calls)
             (status ,status)
-            ;; NASA & Logic mapping
             (is-predicate-p ,is-predicate)
             (has-dead-code-p ,has-dead-code)
             (is-recursive-p ,is-recursive)

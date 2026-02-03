@@ -52,7 +52,7 @@
 
 ;;;
 ;;; "Fact generated when a quality or safety rule is triggered."
-;;;(slot severity) ; :info, :warning, :error
+;;; (slot severity) ; :info, :warning, :error
 ;;;
 
 (deftemplate violation ()
@@ -85,7 +85,7 @@
 
 (defrule rule-1-1-high-cyclomatic-complexity ()
   (code-commit-analysis (symbol-name ?name) (cyclomatic-complexity ?cc))
-  (test (and (numberp ?cc) (> ?cc 10)))
+  (test (and (numberp ?cc) (> ?cc 7)))
   =>
   (assert (violation (rule-id "1.1")
             (severity :error)
@@ -215,7 +215,7 @@
   (code-commit-analysis (symbol-name ?name) (is-recursive-p t))
   =>
   (assert (violation (rule-id "NASA-01")
-            (severity :error)
+            (severity :warning)
             (message (format nil "Recursion Violation: '~A' calls itself. Prohibited in high-integrity code." ?name)))))
 
 ;;;
