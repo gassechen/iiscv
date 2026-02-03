@@ -1228,3 +1228,127 @@ flexible.)
 --------------------------------------------
 NIL
 ```
+
+# Informe de Auditoría: IISCV Test Suite Verification
+
+Este documento detalla el análisis de resultados obtenido tras ejecutar la suite de pruebas integral. Se identifican las fortalezas del sistema y los fallos críticos en los sensores de seguridad y lógica.
+
+---
+
+## 1. Reglas que Funcionaron Correctamente (PASS)
+
+La mayoría de los sensores de análisis estático y reglas de inferencia operan según lo previsto, demostrando solidez en las categorías de estilo y estándares de la NASA.
+
+| Categoría | Regla ID | Prueba | Resultado |
+| :--- | :--- | :--- | :--- |
+| **Maintainability** | `1.3` | `test-magic-numbers` | **PASS**: Detectó los números `42` y `999`. |
+| **Maintainability** | `5.1` | `test-no-docstring` | **PASS**: Identificó la ausencia de documentación. |
+| **Style** | `IDIOMATIC-01` | `test-style` | **PASS**: Sugirió correctamente `INCF` sobre `SETQ`. |
+| **Security** | `3.1` | `test-unsafe-shell` | **PASS**: Detectó el uso de `uiop:run-program`. |
+| **Logic Audit** | `LOGIC-02` | `test-dead-code` | **PASS**: Identificó la rama `IF T` como inalcanzable. |
+| **NASA JPL** | `NASA-01` | `test-recursion` | **PASS**: Detectó la llamada recursiva directa. |
+| **NASA JPL** | `NASA-02` | `test-infinite-loop` | **PASS**: Detectó `LOOP` sin cláusula de salida. |
+| **NASA JPL** | `NASA-05` | `test-low-defense` | **PASS**: Detectó baja densidad de aserciones. |
+| **Forensics** | `LOGIC-IMPACT` | `base-service` | **PASS**: Disparó alerta de impacto en dependientes. |
+| **Forensics** | `2.2` | `base-service` | **PASS**: Detectó la mutación/redefinición interna. |
+
+---
+
+## 2. Reglas que Fallaron o no se Dispararon (FAIL)
+
+Se han identificado tres casos críticos donde el sistema no detectó la violación, lo que representa una brecha en la seguridad del análisis.
+
+### A. Reglas 1.1 y 1.2 (Complejidad y Longitud)
+* **Fallo:** En `test-complex-and-long`, el sistema reportó una **Complejidad Ciclomática de 9**.
+* **Razón:** El umbral para la Regla 1.1 es **>10**. Al no alcanzarlo, la regla permaneció silente.
+* **Acción Requerida:** Aumentar la densidad de ramas `IF/COND` en el test o recalibrar el umbral en `lisa-rules-aux-fn.lisp`.
+
+### B. Regla 6.1 (Símbolos de Implementación)
+* **Fallo:** La prueba con `sb-ext:*gc-run-time*` **no disparó** la regla de portabilidad.
+* **Evidencia:** El log solo muestra recomendaciones de estilo general, ignorando el paquete `SB-EXT`.
+* **Diagnóstico:** El sensor no está reconociendo paquetes específicos de la implementación (SBCL) como externos al estándar ANSI.
+
+### C. SAFETY-01 (Curation Leak) - **CRÍTICO**
+* **Fallo:** El sistema permitió curar `APP-LAYER` a pesar de que su dependencia (`BASE-SERVICE`) estaba en estado `:EXPERIMENTAL`.
+* **Resultado:** `[CURATION] APP-LAYER promoted to :CURATED`.
+* **Impacto:** Fallo de seguridad en la lógica de promoción. La integridad de la cadena de confianza (Forensics) está comprometida.
+
+---
+
+## 3. Observaciones del Logic Audit
+
+Existen áreas de "zona gris" donde el sistema detecta un problema de estilo pero ignora el error lógico subyacente:
+
+1.  **LOGIC-01 (Side-Effect Waste):** En `test-side-effect-waste`, se detectó el uso de globales, pero no el hecho de que una función con efectos secundarios devuelva un valor constante `NIL`, lo cual es una inconsistencia lógica.
+2.  **LOGIC-03 (Predicate Contract):** La función `data-valid-p` no fue penalizada por terminar en `-P` y devolver siempre `NIL`. El motor de reglas debe validar el contrato de retorno de los predicados.
+
+---
+
+## Resumen de Verificación
+
+> [!IMPORTANT]
+> Los sensores de **Análisis Estático** (NASA, Complejidad, Magics) son **SÓLIDOS**.
+> Sin embargo, los sensores de **Integridad de Curación (Leaks)** y **Portabilidad (Regla 6.1)** requieren **REVISIÓN INMEDIATA** para asegurar que el "Blockchain" de commits sea realmente seguro y confiable.
+
+
+
+# Audit Report: IISCV Test Suite Verification
+
+This document details the analysis of the results obtained after executing the comprehensive test suite. It identifies system strengths and critical failures within the security and logic sensors.
+
+---
+
+## 1. Rules with Correct Execution (PASS)
+
+Most static analysis sensors and inference rules are operating as intended, demonstrating robustness in style categories and NASA standards.
+
+| Category | Rule ID | Test Case | Result |
+| :--- | :--- | :--- | :--- |
+| **Maintainability** | `1.3` | `test-magic-numbers` | **PASS**: Detected numbers `42` and `999`. |
+| **Maintainability** | `5.1` | `test-no-docstring` | **PASS**: Identified missing documentation. |
+| **Style** | `IDIOMATIC-01` | `test-style` | **PASS**: Correctly suggested `INCF` over `SETQ`. |
+| **Security** | `3.1` | `test-unsafe-shell` | **PASS**: Detected the use of `uiop:run-program`. |
+| **Logic Audit** | `LOGIC-02` | `test-dead-code` | **PASS**: Identified `IF T` branch as unreachable. |
+| **NASA JPL** | `NASA-01` | `test-recursion` | **PASS**: Detected direct recursive calls. |
+| **NASA JPL** | `NASA-02` | `test-infinite-loop` | **PASS**: Detected `LOOP` without exit clauses. |
+| **NASA JPL** | `NASA-05` | `test-low-defense` | **PASS**: Detected low assertion density. |
+| **Forensics** | `LOGIC-IMPACT` | `base-service` | **PASS**: Triggered impact alerts on dependents. |
+| **Forensics** | `2.2` | `base-service` | **PASS**: Detected internal mutation/redefinition. |
+
+---
+
+## 2. Rules that Failed or Did Not Trigger (FAIL)
+
+Three critical cases were identified where the system failed to detect the violation, representing a gap in the security analysis.
+
+### A. Rules 1.1 & 1.2 (Complexity and Length)
+* **Failure:** In `test-complex-and-long`, the system reported a **Cyclomatic Complexity of 9**.
+* **Reason:** The threshold for Rule 1.1 is typically **>10**. Since it did not reach this value, the rule remained silent.
+* **Required Action:** Increase the density of `IF/COND` branches in the test or recalibrate the threshold in `lisa-rules-aux-fn.lisp`.
+
+### B. Rule 6.1 (Implementation Symbols)
+* **Failure:** The test using `sb-ext:*gc-run-time*` **did not trigger** the portability rule.
+* **Evidence:** The log only shows general style recommendations, ignoring the `SB-EXT` package.
+* **Diagnosis:** The sensor is not recognizing implementation-specific packages (SBCL) as external to the ANSI standard.
+
+### C. SAFETY-01 (Curation Leak) - **CRITICAL**
+* **Failure:** The system allowed the curation of `APP-LAYER` even though its dependency (`BASE-SERVICE`) was in an `:EXPERIMENTAL` state.
+* **Result:** `[CURATION] APP-LAYER promoted to :CURATED`.
+* **Impact:** Security failure in promotion logic. The integrity of the "Chain of Trust" (Forensics) is compromised.
+
+---
+
+## 3. Logic Audit Observations
+
+There are "gray areas" where the system detects a style issue but ignores the underlying logical error:
+
+1.  **LOGIC-01 (Side-Effect Waste):** In `test-side-effect-waste`, the use of globals was detected, but the fact that a function with side effects returns a constant `NIL` (logical inconsistency) was not flagged.
+2.  **LOGIC-03 (Predicate Contract):** The function `data-valid-p` was not penalized for ending in `-P` while returning a hardcoded `NIL`. The rule engine must validate the return contract of predicates.
+
+---
+
+## Verification Summary
+
+> [!IMPORTANT]
+> The **Static Analysis** sensors (NASA, Complexity, Magics) are **SOLID**.
+> However, the **Curation Integrity (Leaks)** and **Portability (Rule 6.1)** sensors require **IMMEDIATE REVISION** to ensure the Forensics "Blockchain" is truly secure and reliable.
