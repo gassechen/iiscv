@@ -6,6 +6,14 @@
   :components ((:module "src"
                 :components
                 ((:file "main")
+		 (:file "utility-fn")
+		 (:file "make-human-commits")
+		 (:file "make-class-commits")
+		 (:file "repl-r")
+		 (:file "dump-source-code")
+		 (:file "make-rove-test")
+		 (:file "register-commit-type")
+		 (:file "reports")
 		 (:file "lisa-rules")
 		 (:file "lisa-rules-aux-fn"))))
   :description ""

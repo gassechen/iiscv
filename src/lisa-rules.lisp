@@ -1,22 +1,20 @@
 ;;; lisa-rules.lisp
+;;; Quality Audit & Forensic Logic Rules for IISCV
 
 (in-package :iiscv)
 
 (defvar *audit-violations* nil
-  "A global list to collect messages from audit rules.")
+  "A global list to collect messages from audit rules during a commit.")
 
 (lisa-lisp:make-inference-engine)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;; Knowledge Base
-;;; Defines the templates and rules for static code analysis.
-;;;;;;;;;;;;;;;;;;;;;;-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; 1. FACT TEMPLATES
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 ;;;
-;;; Fact Templates
+;;; "Primary fact representing the static and logic analysis of a code definition."
 ;;;
-;;;  "Template for facts representing the analysis of a single code commit."
-
 
 (deftemplate code-commit-analysis ()
   (slot commit-uuid)          
@@ -29,313 +27,279 @@
   (slot cyclomatic-complexity)
   (slot uses-unsafe-execution-p) 
   (slot uses-implementation-specific-symbols-p) 
-  (slot is-redefining-core-symbol-p) 
   (slot contains-heavy-consing-loop-p)
   (slot style-critiques)
-  )
+  (slot is-redefining-core-symbol-p)
+  (slot calls)
+  (slot status)              
+  (slot has-side-effects-p)      
+  (slot returns-constant-nil-p)  
+  (slot has-dead-code-p)         
+  (slot mutated-symbols)         
+  (slot is-predicate-p)
+  (slot is-recursive-p)
+  (slot has-unbounded-loop-p)
+  (slot assertion-count))
 
+;;;
+;;; "Control fact for managing multi-step reasoning (e.g., Impact Analysis, Logic Validation)."
+;;;
 
-;;;   "Template for facts that represent a violation of a quality rule."
+(deftemplate goal ()
+  (slot type)     
+  (slot target)   
+  (slot status))  
+
+;;;
+;;; "Fact generated when a quality or safety rule is triggered."
+;;;(slot severity) ; :info, :warning, :error
+;;;
 
 (deftemplate violation ()
   (slot rule-id) 
   (slot severity)
   (slot message)) 
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; 2. COLLECTOR / BRIDGE
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(defrule collect-violations ()
-  "Collects all violation facts into a global list."
-  (violation (message ?msg))
+;;;
+;;; "Intercepts violation facts and pushes them to the global Lisp list for the REPL."
+;;;
+
+(defrule rule-bridge-violations ()
+  
+  (?v (violation (rule-id ?id) (severity ?s) (message ?m)))
   =>
-  (push (list ?msg)  *audit-violations*))
-
+  (push (list ?m ?s ?id) iiscv::*audit-violations*)
+  (retract ?v))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;;
-;;; Quality Rules
-;;;
+;;; 3. QUALITY & MAINTAINABILITY RULES
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 ;;;
-;;; 1. Maintainability (Mantenibilidad)
+;;; "Detects complex control flow using McCabe metric."
 ;;;
-;;;  "Fires when a function's cyclomatic complexity exceeds the threshold (e.g., 10)."
+
 (defrule rule-1-1-high-cyclomatic-complexity ()
-  (code-commit-analysis (symbol-name ?name)
-                        (cyclomatic-complexity ?cc))
-  (test (> ?cc 10))
+  (code-commit-analysis (symbol-name ?name) (cyclomatic-complexity ?cc))
+  (test (and (numberp ?cc) (> ?cc 10)))
   =>
   (assert (violation (rule-id "1.1")
             (severity :error)
-            (message (format nil "High cyclomatic complexity (~a) found in '~a'. Consider refactoring." ?cc ?name)))))
+            (message (format nil "High cyclomatic complexity (~a) found in '~a'." ?cc ?name)))))
 
+;;;
+;;; "Detects oversized functions that hinder readability."
+;;;
 
-;;; "Fires when a function's body length exceeds the threshold (e.g., 25)."
 (defrule rule-1-2-function-too-long ()
-  (code-commit-analysis (symbol-name ?name)
-			(body-length ?len ))
-  (test (> ?len 25))
+  (code-commit-analysis (symbol-name ?name) (body-length ?len))
+  (test (and (numberp ?len) (> ?len 25)))
   =>
   (assert (violation (rule-id "1.2")
             (severity :warning)
-            (message (format nil "Symbol found in '~a' exceeds the 25-line limit (length: ~a)." ?name ?len)))))
+            (message (format nil "Function '~a' exceeds the 25-line limit (length: ~a)." ?name ?len)))))
 
+;;;
+;;; "Detects un-named numeric literals."
+;;;
 
-
-;;;  "Fires when literal numbers (other than 0 or 1) are found in the code."
 (defrule rule-1-3-magic-number-usage ()
-  (code-commit-analysis (symbol-name ?name)
-                        (magic-numbers ?nums))
+  (code-commit-analysis (symbol-name ?name) (magic-numbers ?nums))
   (test (not (null ?nums)))
   =>
   (assert (violation (rule-id "1.3")
-                      (severity :warning)
-                      (message (format nil "Magic numbers ~a found in '~a'. Define them as constants." ?nums ?name)))))
+            (severity :warning)
+            (message (format nil "Magic numbers ~a found in '~a'. Define them as constants." ?nums ?name)))))
 
 ;;;
-;;; 2. Reliability (Fiabilidad)
+;;; "Ensures all definitions are documented."
 ;;;
 
-;;;  "Fires when a commit attempts to redefine a symbol from the COMMON-LISP package."
-(defrule rule-2-2-core-symbol-redefinition ()
-  (code-commit-analysis (symbol-name ?name)
-			(is-redefining-core-symbol-p t))
-  =>
-  (assert (violation (rule-id "2.2")
-	    (severity :error)
-	    (message (format nil  "Attempt to redefine core symbol found in '~a'. This is highly dangerous." ?name)))))
-
-
-;;;
-;;; 3. Security (Seguridad)
-;;;
-;;; "Fires when a function appears to execute an external command."
-
-(defrule rule-3-1-unsafe-command-execution ()
-  (code-commit-analysis (symbol-name ?name)
-                        (uses-unsafe-execution-p t))
-  =>
-  (assert (violation (rule-id "3.1")
-                      (severity :error)
-                      (message (format nil  "Unsafe command execution found in '~a'. Ensure all inputs are sanitized." ?name)))))
-
-
-;;;
-;;; 4. Performance Efficiency (Eficiencia de Desempeño)
-;;;
-;;; "Fires when memory allocation (consing) is detected inside a performance-critical loop."
-
-(defrule rule-4-1-consing-in-loop ()
-  (code-commit-analysis (symbol-name ?name)
-                        (contains-heavy-consing-loop-p t))
-  =>
-  (assert (violation (rule-id "4.1")
-                      (severity :warning)
-                      (message (format nil  "Heavy consing detected in a loop found in '~a'. This may impact performance." ?name)))))
-
-
-;;;
-;;; 5. Functional Suitability (Idoneidad Funcional)
-;;;
-;;;"Fires when a function or class is defined without a docstring."
 (defrule rule-5-1-missing-docstring ()
-  (code-commit-analysis (symbol-name ?name)
-                        (has-docstring-p nil))
+  (code-commit-analysis (symbol-name ?name) (has-docstring-p nil))
   =>
   (assert (violation (rule-id "5.1")
-                      (severity :info)
-                      (message (format nil  "Symbol found in '~a' is missing a docstring." ?name)))))
-
-
-
-;;;"Fires when a function has parameters that are declared but not used."
-(defrule rule-5-2-unused-parameter ()
- (code-commit-analysis (symbol-name ?name)
-		       (unused-parameters ?params))
-  (test (not (null ?params)))
-  =>
-  (assert (violation (rule-id "5.2")
-            (severity :warning)
-            (message (format nil "Unused parameters ~a found in '~a'." ?params ?name)))))
+            (severity :info)
+            (message (format nil "Symbol '~a' is missing a docstring." ?name)))))
 
 ;;;
-;;; 6. Portability (Portabilidad)
+;;; "Triggers style recommendations from the Lisp Critic."
 ;;;
-;;;  "Fires when code uses symbols specific to a particular Common Lisp implementation."
-
-(defrule rule-6-1-implementation-specific-symbols ()
-  (code-commit-analysis (symbol-name ?name)
-                        (uses-implementation-specific-symbols-p t))
-  =>
-  (assert (violation (rule-id "6.1")
-                      (severity :warning)
-            (message (format nil  "Use of non-portable, implementation-specific symbols found in '~a'." ?name)))))
-
-
-
-;;;
-;;; 10. Lisp critic
-;;; "Fire lisp critic style"
 
 (defrule rule-idiomatic-lisp-style ()
-  (code-commit-analysis (symbol-name ?name)
-                        (style-critiques ?c))
+  (code-commit-analysis (symbol-name ?name) (style-critiques ?c))
   (test (not (null ?c)))
   =>
   (assert (violation (rule-id "IDIOMATIC-01")
-                     (severity :warning)
-            (message (format nil "Style recommendations found in '~a':~%~a" ?name ?c)))))
+            (severity :warning)
+            (message (format nil "Style recommendations for '~a': ~a" ?name ?c)))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; 4. SECURITY & RELIABILITY RULES
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;;;
+;;; "Alerts when a function already exists in the forensic history."
+;;;
+
+(defrule rule-2-2-internal-redefinition ()
+  (code-commit-analysis (symbol-name ?name) (is-redefining-core-symbol-p t))
+  =>
+  (assert (violation (rule-id "2.2")
+            (severity :info) 
+            (message (format nil "Mutation detected: '~a' has been updated in the history." ?name)))))
 
 
+;;;
+;;; "Detects external OS command execution."
+;;;
+
+(defrule rule-3-1-unsafe-command-execution ()
+  (code-commit-analysis (symbol-name ?name) (uses-unsafe-execution-p t))
+  =>
+  (assert (violation (rule-id "3.1")
+            (severity :error)
+            (message (format nil "Unsafe command execution in '~a'. Sanitize all inputs." ?name)))))
+
+;;;
+;;; "Prevents stable (:curated) functions from depending on :experimental code."
+;;;
+
+(defrule rule-safety-curation-leak ()
+  (code-commit-analysis (symbol-name ?caller) (status :curated) (calls ?calls))
+  =>
+  (dolist (callee ?calls)
+    (let* ((v (iiscv::find-vertex-by-symbol-name callee))
+           (data (when v (cl-graph:element v))))
+      (when (and data (eq (getf data :status) :experimental))
+        (assert (violation (rule-id "SAFETY-01")
+                  (severity :error)
+                  (message (format nil "Curation Leak: Stable function '~A' depends on experimental '~A'." ?caller callee))))))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; 5. LOGIC & NASA JPL (POWER OF TEN) RULES
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;;;
+;;; "Automatically triggers a deep logic validation for every commit."
+;;;
+
+(defrule rule-trigger-logical-audit ()
+  (code-commit-analysis (symbol-name ?name))
+  =>
+  (assert (goal (type validate-logic) (target ?name) (status active))))
+
+;;;
+;;; "Detects dead code branches (NASA JPL Rule 1)."
+;;;
 
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;;;; TEST RULES ;;;
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defrule rule-logic-unreachable-code ()
+  (goal (type validate-logic) (target ?name) (status active))
+  (code-commit-analysis (symbol-name ?name) (has-dead-code-p t))
+  =>
+  (assert (violation (rule-id "LOGIC-02")
+            (severity :error)
+            (message (format nil "Dead Code in '~A': Unreachable branches detected." ?name)))))
+
+;;;
+;;;  "Prohibits direct recursion in critical systems (NASA JPL Rule 1)."
+;;;
+
+(defrule rule-nasa-01-no-recursion ()
+  (goal (type validate-logic) (target ?name) (status active))
+  (code-commit-analysis (symbol-name ?name) (is-recursive-p t))
+  =>
+  (assert (violation (rule-id "NASA-01")
+            (severity :error)
+            (message (format nil "Recursion Violation: '~A' calls itself. Prohibited in high-integrity code." ?name)))))
+
+;;;
+;;;  "Ensures all loops have a defined exit condition (NASA JPL Rule 2)."
+;;;
+
+(defrule rule-nasa-02-unbounded-loop ()
+  (goal (type validate-logic) (target ?name) (status active))
+  (code-commit-analysis (symbol-name ?name) (has-unbounded-loop-p t))
+  =>
+  (assert (violation (rule-id "NASA-02")
+            (severity :error)
+            (message (format nil "Unbounded Loop in '~A': All loops must have an exit clause." ?name)))))
+
+
+;;;
+;;; "Encourages defensive programming (NASA JPL Rule 5)."
+;;;
+
+
+(defrule rule-nasa-05-assertion-density ()
+  (goal (type validate-logic) (target ?name) (status active))
+  (code-commit-analysis (symbol-name ?name) (assertion-count ?count) (body-length ?len))
+  (test (and (numberp ?len) (> ?len 10) (zerop ?count)))
+  =>
+  (assert (violation (rule-id "NASA-05")
+            (severity :warning)
+            (message (format nil "Low Assertion Density in '~A': No safety checks (assert/check-type) found." ?name)))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; 6. IMPACT ANALYSIS (BACKWARD CHAINING)
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;;;
+;;;  "Detects redefinitions and triggers a forensic impact trace."
+;;;
+
+(defrule rule-trigger-impact ()
+  (code-commit-analysis (symbol-name ?name) (is-redefining-core-symbol-p t))
+  =>
+  (assert (goal (type trace-impact) (target ?name) (status active))))
+
+;;;
+;;; "Navigates the CL-GRAPH to find all active dependents of the target."
+;;; 
+
+(defrule rule-process-impact ()
+  (?g (goal (type trace-impact) (target ?target) (status active)))
+  =>
+  (let ((dependents (iiscv::find-dependents-in-history ?target)))
+    (dolist (dep dependents)
+      (assert (violation (rule-id "LOGIC-IMPACT")
+                (severity :warning)
+                (message (format nil "Forensic Impact: '~A' depends on '~A' and requires review." dep ?target))))))
+  (retract ?g))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; 7. TEST SUITE
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
 (defun test-all-rules ()
-  "Runs a comprehensive test of all quality auditor rules."
+  "Runs a comprehensive test of all forensic audit rules."
   (lisa-lisp:reset)
+  (setf *audit-violations* nil)
   
-  ;; Rule 1.1: High Cyclomatic Complexity
-  (lisa-lisp:assert (code-commit-analysis
-                     (commit-uuid "test-rule-1-1")
-                     (symbol-name "complex-function")
-                     (body-length 0)
-                     (cyclomatic-complexity 15)
-                     (magic-numbers nil)
-                     (is-redefining-core-symbol-p nil)
-                     (uses-unsafe-execution-p nil)
-                     (contains-heavy-consing-loop-p nil)
-                     (has-docstring-p t)
-                     (uses-implementation-specific-symbols-p nil)))
+  ;; Mocking a complex function (Rule 1.1)
+  (lisa:assert (code-commit-analysis (commit-uuid "test-1.1") (symbol-name "complex-fn") (cyclomatic-complexity 15)))
   
-  ;; Rule 1.2: Function Too Long
-  (lisa-lisp:assert (code-commit-analysis
-                   (commit-uuid "test-rule-1-2")
-                   (symbol-name "my-long-function")
-                   (body-length 42)
-                   (cyclomatic-complexity 0)
-                   (magic-numbers nil)
-                   (is-redefining-core-symbol-p nil)
-                   (uses-unsafe-execution-p nil)
-                   (contains-heavy-consing-loop-p nil)
-                   (has-docstring-p t)
-                   (uses-implementation-specific-symbols-p nil)))
-  
-  ;; Rule 1.3: Magic Number Usage
-  (lisa-lisp:assert (code-commit-analysis
-                     (commit-uuid "test-rule-1-3")
-                     (symbol-name "bad-function")
-                     (body-length 0)
-                     (cyclomatic-complexity 0)
-                     (magic-numbers '(5 100))
-                     (is-redefining-core-symbol-p nil)
-                     (uses-unsafe-execution-p nil)
-                     (contains-heavy-consing-loop-p nil)
-                     (has-docstring-p t)
-                     (uses-implementation-specific-symbols-p nil)))
+  ;; Mocking a long function (Rule 1.2)
+  (lisa:assert (code-commit-analysis (commit-uuid "test-1.2") (symbol-name "long-fn") (body-length 50)))
 
-  ;; Rule 2.2: Core Symbol Redefinition
-  (lisa-lisp:assert (code-commit-analysis
-                     (commit-uuid "test-rule-2-2")
-                     (symbol-name "DEFUN")
-                     (body-length 0)
-                     (cyclomatic-complexity 0)
-                     (magic-numbers nil)
-                     (is-redefining-core-symbol-p t)
-                     (uses-unsafe-execution-p nil)
-                     (contains-heavy-consing-loop-p nil)
-                     (has-docstring-p t)
-                     (uses-implementation-specific-symbols-p nil)))
+  ;; Mocking magic numbers (Rule 1.3)
+  (lisa:assert (code-commit-analysis (commit-uuid "test-1.3") (symbol-name "magic-fn") (magic-numbers '(42 99))))
 
-  ;; Rule 3.1: Unsafe Command Execution
-  (lisa-lisp:assert (code-commit-analysis
-                     (commit-uuid "test-rule-3-1")
-                     (symbol-name "exec-shell-command")
-                     (body-length 0)
-                     (cyclomatic-complexity 0)
-                     (magic-numbers nil)
-                     (is-redefining-core-symbol-p nil)
-                     (uses-unsafe-execution-p t)
-                     (contains-heavy-consing-loop-p nil)
-                     (has-docstring-p t)
-                     (uses-implementation-specific-symbols-p nil)))
+  ;; Mocking a redefinition (Rule 2.2 + Impact)
+  (lisa:assert (code-commit-analysis (commit-uuid "test-2.2") (symbol-name "base-fn") (is-redefining-core-symbol-p t)))
 
-  ;; Rule 4.1: Consing in Loop
-  (lisa-lisp:assert (code-commit-analysis
-                     (commit-uuid "test-rule-4-1")
-                     (symbol-name "loop-with-cons")
-                     (body-length 0)
-                     (cyclomatic-complexity 0)
-                     (magic-numbers nil)
-                     (is-redefining-core-symbol-p nil)
-                     (uses-unsafe-execution-p nil)
-                     (contains-heavy-consing-loop-p t)
-                     (has-docstring-p t)
-                     (uses-implementation-specific-symbols-p nil)))
-  
-  ;; Rule 5.1: Missing Docstring
-  (lisa-lisp:assert (code-commit-analysis
-                     (commit-uuid "test-rule-5-1")
-                     (symbol-name "undocumented-function")
-                     (body-length 0)
-                     (cyclomatic-complexity 0)
-                     (magic-numbers nil)
-                     (is-redefining-core-symbol-p nil)
-                     (uses-unsafe-execution-p nil)
-                     (contains-heavy-consing-loop-p nil)
-                     (has-docstring-p nil)
-                     (uses-implementation-specific-symbols-p nil)))
-  
-  ;; Rule 6.1: Implementation-specific Symbols
-  (lisa-lisp:assert (code-commit-analysis
-                     (commit-uuid "test-rule-6-1")
-                     (symbol-name "sbcl-specific-function")
-                     (body-length 0)
-                     (cyclomatic-complexity 0)
-                     (magic-numbers nil)
-                     (has-docstring-p t)
-                     (is-redefining-core-symbol-p nil)
-                     (uses-unsafe-execution-p nil)
-                     (contains-heavy-consing-loop-p nil)
-                      (uses-implementation-specific-symbols-p t)))
+  ;; Mocking NASA violations (Dead code, recursion)
+  (lisa:assert (code-commit-analysis (commit-uuid "test-nasa") (symbol-name "bad-logic") (has-dead-code-p t) (is-recursive-p t)))
 
-
-  (lisa-lisp:assert (code-commit-analysis
-                      (commit-uuid "test-rule-6-1")
-                      (symbol-name "sbcl-specific-function")
-                      (body-length 0)
-                      (cyclomatic-complexity 0)
-                      (magic-numbers nil)
-                      (has-docstring-p t)
-                      (is-redefining-core-symbol-p nil)
-                      (uses-unsafe-execution-p nil)
-                      (contains-heavy-consing-loop-p nil)
-                      (uses-implementation-specific-symbols-p t)
-		      (style-critiques "Don't use SETQ inside DOLIST. Use INCF instead.")))
-
-
-  (lisa-lisp:assert (code-commit-analysis
-                      (commit-uuid "test-rule-11-1")
-                      (symbol-name "broken-logic-function")
-                      (body-length 5)
-                      (cyclomatic-complexity 1)
-                      (magic-numbers nil)
-                      (is-redefining-core-symbol-p nil)
-                      (uses-unsafe-execution-p nil)
-                      (contains-heavy-consing-loop-p nil)
-                      (has-docstring-p t)
-                      (unused-parameters nil)
-                      (uses-implementation-specific-symbols-p nil)
-                      (style-critiques nil)
-                      ;; Inyectamos los errores que normalmente vendrían de run-prolog-integrity-audit
-                      (logical-violations '("ORPHAN-REFERENCE: UNDEFINED-FUNC-X" 
-                                            "ARITY-MISMATCH: + expected 2+, got 1"))))
-
-  
-
-  ;; Run the inference engine
   (lisa-lisp:run)
   
-  ;; Display the final facts, which should include all the violations
+  (format t "~%=== Forensic Audit Test Report ===~%")
+  (format t "Total Violations: ~A~%" (length *audit-violations*))
+  (dolist (v *audit-violations*)
+    (format t "-> [~A] ~A~%" (third v) (first v)))
   (lisa-lisp:facts))
