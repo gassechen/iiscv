@@ -18,11 +18,13 @@
         (t nil)))
 
 
-
 (defun calculate-body-length (definition-form)
-  "Calculates the approximate length of a function's body by counting top-level forms."
-  (let ((body-forms (get-body-forms definition-form)))
-    (if body-forms (length body-forms) 0)))
+  "Cuenta el número total de átomos/llamadas en el cuerpo para medir tamaño real."
+  (let ((body (get-body-forms definition-form)))
+    (if body
+        (length (alexandria:flatten body)) ; Aplanamos para contar la 'masa' de código
+        0)))
+
 
 (defun count-decision-points (form)
   "Recursively traverses a form to count control structures that increase cyclomatic complexity."
@@ -42,18 +44,39 @@
       (setf body (cdr body)))
     (+ 1 (count-decision-points body))))
 
+
 (defun find-magic-numbers (form)
-  "Finds and returns a list of magic numbers in a Lisp form, excluding constants and variables."
-  (let ((found-numbers nil))
-    (labels ((scan (subform)
-               (cond ((numberp subform)
-                      (unless (member subform '(0 1)) (push subform found-numbers)))
-                     ((listp subform)
-                      (let ((form-type (car subform)))
-                        (unless (member form-type '(defconstant defvar defparameter quote))
-                          (dolist (item (cdr subform)) (scan item))))))))
-      (scan form)
+  "Escáner selectivo: Ignora números en definiciones locales, casos y offsets comunes."
+  (let ((found-numbers nil)
+        ;; Lista de perdón: Números que tienen sentido semántico por sí mismos
+        (whitelist '(0 1 2 -1 10 100))) 
+    (labels ((scan (subform in-assignment)
+               (cond 
+                 ((numberp subform)
+                  ;; Si no está en la lista blanca y no es parte de un LET/DEF, es mágico
+                  (unless (or (member subform whitelist) in-assignment)
+                    (push subform found-numbers)))
+                 
+                 ((listp subform)
+                  (let ((op (car subform)))
+                    (cond 
+                      ;; Ignorar el valor si está siendo asignado a un nombre (Semántica)
+                      ((member op '(let let* defconstant defvar defparameter))
+                       (dolist (binding (second subform))
+                         (if (listp binding)
+                             (scan (second binding) t) ;; El número está 'protegido' por un nombre
+                             (scan binding nil))))
+                      
+                      ;; Ignorar números en CASE y DOTIMES (son identificadores o límites)
+                      ((member op '(case ecase ccase dotimes make-array sleep))
+                       (dolist (item (cdr subform)) (scan item t)))
+                      
+                      ;; Escaneo normal para el resto
+                      (t (dolist (item (cdr subform)) (scan item nil)))))))))
+      (scan form nil)
       (when found-numbers (list (remove-duplicates found-numbers))))))
+
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; 2. PARAMETERS & USAGE ANALYSIS
@@ -112,6 +135,7 @@
                       (dolist (item subform) (scan item))))))
       (scan form))
     used-symbols))
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; 3. SAFETY & LOGIC SENSORS (NASA Power of Ten)
@@ -275,6 +299,8 @@
 
 
 
+
+
 (defun find-dependents-in-history (function-name)
   "Searches for active functions that depend on the given function-name."
   (let ((affected nil)
@@ -308,7 +334,7 @@
 				    uses-implementation-specific-symbols-p style-critiques status
                                     is-predicate has-dead-code is-recursive 
                                     assertion-count has-unbounded-loop
-                                    has-side-effects returns-constant-nil)
+                                    has-side-effects returns-constant-nil mutated-symbols) 
   "Feeds all forensic data into the LISA engine."
   (setq *audit-violations* nil)
   (lisa:reset)
@@ -334,7 +360,8 @@
             (assertion-count ,assertion-count)
             (has-unbounded-loop-p ,has-unbounded-loop)
             (has-side-effects-p ,has-side-effects)
-            (returns-constant-nil-p ,returns-constant-nil))))
+            (returns-constant-nil-p ,returns-constant-nil)
+	    (mutated-symbols ',mutated-symbols))))
     (eval `(lisa:assert ,fact-data)))
   (lisa:run)
   (lisa:run))

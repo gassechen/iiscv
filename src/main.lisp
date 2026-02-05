@@ -79,7 +79,7 @@
          (body (get-body-forms definition-form))
          (mutations (extract-mutated-symbols definition-form))
          (last-val (car (last body)))
-         
+	 (is-pred (if (is-lisp-predicate-p name) t nil))
          (commit-uuid (format nil "~a" (uuid:make-v4-uuid)))
          (style-critiques (clean-critic-report 
                            (with-output-to-string (*standard-output*)
@@ -101,13 +101,14 @@
      :is-redef is-redef
      :calls calls
      :status :experimental
-     :is-predicate (is-lisp-predicate-p name)
+     :is-predicate is-pred
      :has-dead-code (has-dead-code-p definition-form)
      :is-recursive (is-recursive-p name definition-form)
      :assertion-count (count-assertions definition-form)
      :has-unbounded-loop (has-unbounded-loops-p definition-form)
      :has-side-effects (not (null mutations))
-     :returns-constant-nil (or (null last-val) (eq last-val nil)))
+     :returns-constant-nil (or (null last-val) (eq last-val nil))
+     :mutated-symbols mutations)
 
     ;; Persist in Atomic Graph
     (let* ((commit-data `(:UUID ,commit-uuid
@@ -129,9 +130,54 @@
       (when (symbolp name)
         (setf (gethash fqn *function-to-uuid-map*) commit-uuid))
 
-      (format t "~%[AUDIT] ~A | Violations: ~A~%" name (length *audit-violations*))
-      (format t "~{~a~%~}" (mapcar #'car *audit-violations*))
-      commit-uuid)))
+      (let* ((sorted-violations (sort-violations-by-score *audit-violations*))
+	     (total-score (calculate-total-score *audit-violations*))
+	     (error-count (length (filter-violations-by-severity *audit-violations* :error)))
+	     (warning-count (length (filter-violations-by-severity *audit-violations* :warning))))
+	
+	(format t "~%[AUDIT] ~A | Violations: ~A (~A errors, ~A warnings) | Total Score: ~A~%"
+		name (length *audit-violations*) error-count warning-count total-score)
+	
+	;; Imprimir cada violación con su score
+	(dolist (v sorted-violations)
+	  (format t "  [~A] (~2D pts) ~A: ~A~%"
+		  (third v)           ;; rule-id
+		  (violation-score-t v) ;; score
+		  (second v)          ;; severity
+		  (first v)))         ;; message
+
+
+	
+	commit-uuid))))
+
+
+
+
+;; Estas funciones trabajan con el nuevo formato: (message severity rule-id score)
+
+(defun violation-score-t (violation)
+  "Extrae la puntuación de una violación (4to elemento)."
+  (fourth violation))
+
+(defun calculate-total-score (violations)
+  "Suma todas las puntuaciones de las violaciones."
+  (reduce #'+ (mapcar #'violation-score-t violations) :initial-value 0))
+
+(defun get-severity-from-violation (violation)
+  "Extrae la severidad de una violación."
+  (second violation))
+
+(defun filter-violations-by-severity (violations severity)
+  "Filtra violaciones por nivel de severidad."
+  (remove-if-not (lambda (v) (eq (get-severity-from-violation v) severity))
+                 violations))
+
+(defun sort-violations-by-score (violations)
+  "Ordena violaciones de mayor a menor puntuación."
+  (sort (copy-list violations) #'> :key #'violation-score-t))
+
+
+
 
 
 
