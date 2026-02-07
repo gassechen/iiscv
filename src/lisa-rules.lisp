@@ -88,7 +88,8 @@
   (code-commit-analysis (symbol-name ?name) 
                         (cyclomatic-complexity ?cc))
   
-  (test (and (numberp ?cc) (> ?cc 7))) 
+  (test (and (numberp ?cc) (> ?cc 7)))
+  
   =>
   (assert (violation (rule-id "1.1")
             (severity :error)

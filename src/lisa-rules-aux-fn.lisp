@@ -278,8 +278,28 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 
+;; (defun extract-calls (form &optional current-name)
+;;   "Extracts calls, including the function itself (for recursion detection)."
+;;   (let ((calls '())
+;;         (current-fqn (when current-name 
+;;                        (if (symbolp current-name)
+;;                            (format nil "~A::~A" (package-name (symbol-package current-name)) (symbol-name current-name))
+;;                            (princ-to-string current-name)))))
+;;     (labels ((scan (x)
+;;                (cond ((listp x)
+;;                       (let ((head (car x)))
+;;                         (when (symbolp head)
+;;                           (let ((fqn (format nil "~A::~A" (package-name (symbol-package head)) (symbol-name head))))
+;;                             (when (or (gethash fqn iiscv::*function-to-uuid-map*)
+;;                                       (string= fqn current-fqn))
+;;                               (pushnew fqn calls :test #'equal))))
+;;                         (mapc #'scan x))))))
+;;       (scan (get-body-forms form))
+;;       calls)))
+
+
+
 (defun extract-calls (form &optional current-name)
-  "Extracts calls, including the function itself (for recursion detection)."
   (let ((calls '())
         (current-fqn (when current-name 
                        (if (symbolp current-name)
@@ -290,13 +310,13 @@
                       (let ((head (car x)))
                         (when (symbolp head)
                           (let ((fqn (format nil "~A::~A" (package-name (symbol-package head)) (symbol-name head))))
-                            (when (or (gethash fqn iiscv::*function-to-uuid-map*)
-                                      (string= fqn current-fqn))
+                            ;; CAMBIO: Ya no preguntamos al hash-map. 
+                            ;; Si es un símbolo y no es el propio nombre, lo guardamos.
+                            (unless (string= fqn current-fqn)
                               (pushnew fqn calls :test #'equal))))
                         (mapc #'scan x))))))
       (scan (get-body-forms form))
       calls)))
-
 
 
 

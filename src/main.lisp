@@ -61,7 +61,8 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (defun make-atomic-commit (definition-form)
-  "Captures a definition, audits it via LISA, and registers it as :EXPERIMENTAL."
+  "Captures a definition, audits it via LISA, and registers it as :EXPERIMENTAL.
+   Now includes an EVAL step to install the code in the live image."
   (setq *audit-violations* nil)
   (lisa:reset)
   (let* ((name-form (and (listp definition-form) (second definition-form)))
@@ -72,20 +73,29 @@
                             "-"))))
          (fqn (format nil "~A::~A" (package-name (symbol-package name)) (symbol-name name)))
          (is-redef (not (null (gethash fqn *function-to-uuid-map*))))
-         
-         
          (calls (extract-calls definition-form name)) 
          (docstring (get-docstring definition-form))
          (body (get-body-forms definition-form))
          (mutations (extract-mutated-symbols definition-form))
          (last-val (car (last body)))
-	 (is-pred (if (is-lisp-predicate-p name) t nil))
+         (is-pred (if (is-lisp-predicate-p name) t nil))
          (commit-uuid (format nil "~a" (uuid:make-v4-uuid)))
          (style-critiques (clean-critic-report 
                            (with-output-to-string (*standard-output*)
                              (lisp-critic:critique-definition definition-form)))))
 
-    ;; Forensic Audit with NASA and Logic Parameters
+    (multiple-value-bind (compiled-fn warnings-p failure-p)
+        (compile nil `(lambda () ,definition-form))
+      (declare (ignore compiled-fn warnings-p))
+      (if failure-p
+          (progn
+            (format t "~%[IISCV-BLOCK] Commit REJECTED: Semantic/Syntax error detected by compiler.~%")
+            (return-from make-atomic-commit nil))
+          ;; Si no falló la compilación, evaluamos para instalar en la imagen
+          (eval definition-form)))
+
+
+    ;; 1. Forensic Audit
     (analyze-commit-and-assert
      :uuid commit-uuid
      :name name
@@ -110,7 +120,7 @@
      :returns-constant-nil (or (null last-val) (eq last-val nil))
      :mutated-symbols mutations)
 
-    ;; Persist in Atomic Graph
+    ;; 2. Persist in Atomic Graph
     (let* ((commit-data `(:UUID ,commit-uuid
                          :symbol-name ,name
                          :source-form ,definition-form
@@ -130,25 +140,24 @@
       (when (symbolp name)
         (setf (gethash fqn *function-to-uuid-map*) commit-uuid))
 
+      
+      ;; 4. Output Reporting
       (let* ((sorted-violations (sort-violations-by-score *audit-violations*))
-	     (total-score (calculate-total-score *audit-violations*))
-	     (error-count (length (filter-violations-by-severity *audit-violations* :error)))
-	     (warning-count (length (filter-violations-by-severity *audit-violations* :warning))))
-	
-	(format t "~%[AUDIT] ~A | Violations: ~A (~A errors, ~A warnings) | Total Score: ~A~%"
-		name (length *audit-violations*) error-count warning-count total-score)
-	
-	;; Imprimir cada violación con su score
-	(dolist (v sorted-violations)
-	  (format t "  [~A] (~2D pts) ~A: ~A~%"
-		  (third v)           ;; rule-id
-		  (violation-score-t v) ;; score
-		  (second v)          ;; severity
-		  (first v)))         ;; message
-
-
-	
-	commit-uuid))))
+             (total-score (calculate-total-score *audit-violations*))
+             (error-count (length (filter-violations-by-severity *audit-violations* :error)))
+             (warning-count (length (filter-violations-by-severity *audit-violations* :warning))))
+        
+        (format t "~%[AUDIT] ~A | Violations: ~A (~A errors, ~A warnings) | Total Score: ~A~%"
+                name (length *audit-violations*) error-count warning-count total-score)
+        
+        (dolist (v sorted-violations)
+          (format t "  [~A] (~2D pts) ~A: ~A~%"
+                  (third v) 
+                  (violation-score-t v) 
+                  (second v) 
+                  (first v)))
+        
+        commit-uuid))))
 
 
 
