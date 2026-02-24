@@ -31,6 +31,8 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; 1. GLOBAL STATE & INITIALIZATION
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defvar *iiscv-tolerance* 10 
+  "Puntuación máxima de violaciones permitida para que un átomo entre al historial.")
 
 (defvar *function-to-uuid-map* (make-hash-table :test 'equal)
   "Maps function names (PACKAGE::NAME) to their last committed UUID.")
@@ -60,17 +62,116 @@
 ;;; 2. ATOMIC COMMIT SYSTEM
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(defun make-atomic-commit (definition-form)
-  "Captures a definition, audits it via LISA, and registers it as :EXPERIMENTAL.
-   Now includes an EVAL step to install the code in the live image."
+;; (defun make-atomic-commit (definition-form)
+;;   "Captures a definition, audits it via LISA, and registers it as :EXPERIMENTAL.
+;;    Now includes an EVAL step to install the code in the live image."
+;;   (setq *audit-violations* nil)
+;;   (lisa:reset)
+;;   (let* ((name-form (and (listp definition-form) (second definition-form)))
+;;          (name (if (symbolp name-form)
+;;                    name-form
+;;                    (intern (string-join
+;;                             (mapcar #'princ-to-string (alexandria:flatten name-form))
+;;                             "-"))))
+;;          (fqn (format nil "~A::~A" (package-name (symbol-package name)) (symbol-name name)))
+;;          (is-redef (not (null (gethash fqn *function-to-uuid-map*))))
+;;          (calls (extract-calls definition-form name)) 
+;;          (docstring (get-docstring definition-form))
+;;          (body (get-body-forms definition-form))
+;;          (mutations (extract-mutated-symbols definition-form))
+;;          (last-val (car (last body)))
+;;          (is-pred (if (is-lisp-predicate-p name) t nil))
+;;          (commit-uuid (format nil "~a" (uuid:make-v4-uuid)))
+;;          (style-critiques (clean-critic-report 
+;;                            (with-output-to-string (*standard-output*)
+;;                              (lisp-critic:critique-definition definition-form)))))
+
+;;     (multiple-value-bind (compiled-fn warnings-p failure-p)
+;;         (compile nil `(lambda () ,definition-form))
+;;       (declare (ignore compiled-fn warnings-p))
+;;       (if failure-p
+;;           (progn
+;;             (format t "~%[IISCV-BLOCK] Commit REJECTED: Semantic/Syntax error detected by compiler.~%")
+;;             (return-from make-atomic-commit nil))
+;;           ;; Si no falló la compilación, evaluamos para instalar en la imagen
+;;           (eval definition-form)))
+
+
+;;     ;; 1. Forensic Audit
+;;     (analyze-commit-and-assert
+;;      :uuid commit-uuid
+;;      :name name
+;;      :has-docstring-p (not (null docstring))
+;;      :body-length (calculate-body-length definition-form)
+;;      :cyclomatic-complexity (calculate-cyclomatic-complexity definition-form)
+;;      :magic-numbers (find-magic-numbers definition-form)
+;;      :unused-parameters (find-unused-parameters definition-form)
+;;      :uses-unsafe-execution-p (not (null (find-unsafe-execution-forms definition-form)))
+;;      :contains-heavy-consing-loop-p (contains-heavy-consing-loop-p definition-form)
+;;      :uses-implementation-specific-symbols-p (find-implementation-specific-symbols definition-form)
+;;      :style-critiques style-critiques
+;;      :is-redef is-redef
+;;      :calls calls
+;;      :status :experimental
+;;      :is-predicate is-pred
+;;      :has-dead-code (has-dead-code-p definition-form)
+;;      :is-recursive (is-recursive-p name definition-form)
+;;      :assertion-count (count-assertions definition-form)
+;;      :has-unbounded-loop (has-unbounded-loops-p definition-form)
+;;      :has-side-effects (not (null mutations))
+;;      :returns-constant-nil (or (null last-val) (eq last-val nil))
+;;      :mutated-symbols mutations)
+
+;;     ;; 2. Persist in Atomic Graph
+;;     (let* ((commit-data `(:UUID ,commit-uuid
+;;                          :symbol-name ,name
+;;                          :source-form ,definition-form
+;;                          :status :experimental
+;;                          :calls ,calls
+;;                          :message ,(or docstring "No docstring provided.")
+;;                          :timestamp ,(get-universal-time)
+;;                          :rules-violations ,*audit-violations*))
+;;            (new-v (cl-graph:add-vertex *atomic-history-graph* commit-data)))
+      
+;;       (when *last-atomic-commit-uuid*
+;;         (let ((old-v (find-vertex-by-uuid *atomic-history-graph* *last-atomic-commit-uuid*)))
+;;           (when (and old-v new-v)
+;;             (cl-graph:add-edge-between-vertexes *atomic-history-graph* old-v new-v))))
+  
+;;       (setf *last-atomic-commit-uuid* commit-uuid)
+;;       (when (symbolp name)
+;;         (setf (gethash fqn *function-to-uuid-map*) commit-uuid))
+
+      
+;;       ;; 4. Output Reporting
+;;       (let* ((sorted-violations (sort-violations-by-score *audit-violations*))
+;;              (total-score (calculate-total-score *audit-violations*))
+;;              (error-count (length (filter-violations-by-severity *audit-violations* :error)))
+;;              (warning-count (length (filter-violations-by-severity *audit-violations* :warning))))
+        
+;;         (format t "~%[AUDIT] ~A | Violations: ~A (~A errors, ~A warnings) | Total Score: ~A~%"
+;;                 name (length *audit-violations*) error-count warning-count total-score)
+        
+;;         (dolist (v sorted-violations)
+;;           (format t "  [~A] (~2D pts) ~A: ~A~%"
+;;                   (third v) 
+;;                   (violation-score-t v) 
+;;                   (second v) 
+;;                   (first v)))
+        
+;;         commit-uuid))))
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defun make-assert (definition-form)
+  "Audita el código. Si pasa el umbral, llama a make-atomic-commit."
   (setq *audit-violations* nil)
   (lisa:reset)
-  (let* ((name-form (and (listp definition-form) (second definition-form)))
+  (let* ((type (get-commit-type definition-form))
+	 (name-form (and (listp definition-form) (second definition-form)))
          (name (if (symbolp name-form)
                    name-form
-                   (intern (string-join
-                            (mapcar #'princ-to-string (alexandria:flatten name-form))
-                            "-"))))
+                   (intern (format nil "~{~A~^-~}" (alexandria:flatten name-form)))))
          (fqn (format nil "~A::~A" (package-name (symbol-package name)) (symbol-name name)))
          (is-redef (not (null (gethash fqn *function-to-uuid-map*))))
          (calls (extract-calls definition-form name)) 
@@ -84,21 +185,10 @@
                            (with-output-to-string (*standard-output*)
                              (lisp-critic:critique-definition definition-form)))))
 
-    (multiple-value-bind (compiled-fn warnings-p failure-p)
-        (compile nil `(lambda () ,definition-form))
-      (declare (ignore compiled-fn warnings-p))
-      (if failure-p
-          (progn
-            (format t "~%[IISCV-BLOCK] Commit REJECTED: Semantic/Syntax error detected by compiler.~%")
-            (return-from make-atomic-commit nil))
-          ;; Si no falló la compilación, evaluamos para instalar en la imagen
-          (eval definition-form)))
-
-
-    ;; 1. Forensic Audit
     (analyze-commit-and-assert
      :uuid commit-uuid
      :name name
+     :symbol-type type
      :has-docstring-p (not (null docstring))
      :body-length (calculate-body-length definition-form)
      :cyclomatic-complexity (calculate-cyclomatic-complexity definition-form)
@@ -120,7 +210,40 @@
      :returns-constant-nil (or (null last-val) (eq last-val nil))
      :mutated-symbols mutations)
 
-    ;; 2. Persist in Atomic Graph
+    (let* ((sorted-violations (sort-violations-by-score *audit-violations*))
+           (total-score (calculate-total-score *audit-violations*))
+           (error-count (length (filter-violations-by-severity *audit-violations* :error)))
+           (warning-count (length (filter-violations-by-severity *audit-violations* :warning))))
+      
+      (format t "~%[AUDIT] ~A | Violations: ~A (~A errors, ~A warnings) | Total Score: ~A~%"
+              name (length *audit-violations*) error-count warning-count total-score)
+      
+      (dolist (v sorted-violations)
+        (format t "  [~A] (~2D pts) ~A: ~A~%"
+                (third v) (violation-score-t v) (second v) (first v)))
+
+      (when (<= total-score *iiscv-tolerance*)
+        (make-atomic-commit definition-form)))))
+
+
+(defun make-atomic-commit (definition-form)
+  "Compila, evalúa y registra en el grafo."
+  (let* ((name-form (and (listp definition-form) (second definition-form)))
+         (name (if (symbolp name-form)
+                   name-form
+                   (intern (format nil "~{~A~^-~}" (alexandria:flatten name-form)))))
+         (fqn (format nil "~A::~A" (package-name (symbol-package name)) (symbol-name name)))
+         (commit-uuid (format nil "~a" (uuid:make-v4-uuid)))
+         (calls (extract-calls definition-form name)) 
+         (docstring (get-docstring definition-form)))
+
+    (multiple-value-bind (compiled-fn warnings-p failure-p)
+        (compile nil `(lambda () ,definition-form))
+      (declare (ignore compiled-fn warnings-p))
+      (if failure-p
+          (return-from make-atomic-commit nil)
+          (eval definition-form)))
+
     (let* ((commit-data `(:UUID ,commit-uuid
                          :symbol-name ,name
                          :source-form ,definition-form
@@ -139,29 +262,13 @@
       (setf *last-atomic-commit-uuid* commit-uuid)
       (when (symbolp name)
         (setf (gethash fqn *function-to-uuid-map*) commit-uuid))
-
       
-      ;; 4. Output Reporting
-      (let* ((sorted-violations (sort-violations-by-score *audit-violations*))
-             (total-score (calculate-total-score *audit-violations*))
-             (error-count (length (filter-violations-by-severity *audit-violations* :error)))
-             (warning-count (length (filter-violations-by-severity *audit-violations* :warning))))
-        
-        (format t "~%[AUDIT] ~A | Violations: ~A (~A errors, ~A warnings) | Total Score: ~A~%"
-                name (length *audit-violations*) error-count warning-count total-score)
-        
-        (dolist (v sorted-violations)
-          (format t "  [~A] (~2D pts) ~A: ~A~%"
-                  (third v) 
-                  (violation-score-t v) 
-                  (second v) 
-                  (first v)))
-        
-        commit-uuid))))
+      (format t "[IISCV-OK] Átomo registrado: ~A~%" commit-uuid)
+      commit-uuid)))
 
 
 
-
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Estas funciones trabajan con el nuevo formato: (message severity rule-id score)
 
 (defun violation-score-t (violation)
@@ -184,6 +291,9 @@
 (defun sort-violations-by-score (violations)
   "Ordena violaciones de mayor a menor puntuación."
   (sort (copy-list violations) #'> :key #'violation-score-t))
+
+
+
 
 
 

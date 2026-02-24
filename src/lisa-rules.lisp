@@ -1,5 +1,5 @@
-;;; lisa-rules.lisp
-;;; Quality Audit & Forensic Logic Rules for IISCV
+;;;lisa-rules.lisp
+;;;Quality Audit & Forensic Logic Rules for IISCV
 
 (in-package :iiscv)
 
@@ -85,43 +85,28 @@
 ;;;
 
 (defrule rule-1-1-high-cyclomatic-complexity ()
-  (code-commit-analysis (symbol-name ?name) 
-                        (cyclomatic-complexity ?cc))
-  
+  ;; Solo aplica a funciones/macros
+  (code-commit-analysis (symbol-name ?name) (symbol-type function) (cyclomatic-complexity ?cc))
   (test (and (numberp ?cc) (> ?cc 7)))
-  
   =>
   (assert (violation (rule-id "1.1")
             (severity :error)
-            (message (format nil "High cyclomatic complexity (~a) found in '~a'." ?cc ?name))
+            (message (format nil "High cyclomatic complexity (~a) found in function '~a'." ?cc ?name))
             (score 10))))
 
 
 ;;;
 ;;; "Detects oversized functions that hinder readability."
 ;;;
-
 (defrule rule-1-2-function-too-long ()
-  (code-commit-analysis (symbol-name ?name) (body-length ?len))
+  ;; Solo aplica a funciones
+  (code-commit-analysis (symbol-name ?name) (symbol-type function) (body-length ?len))
   (test (and (numberp ?len) (> ?len 25)))
   =>
   (assert (violation (rule-id "1.2")
             (severity :warning)
             (message (format nil "Function '~a' exceeds the 25-line limit (length: ~a)." ?name ?len))
-	    (score 5))))
-
-;;;
-;;; "Detects un-named numeric literals."
-;;;
-
-;; (defrule rule-1-3-magic-number-usage ()
-;;   (code-commit-analysis (symbol-name ?name) (magic-numbers ?nums))
-;;   (test (not (null ?nums)))
-;;   =>
-;;   (assert (violation (rule-id "1.3")
-;;             (severity :warning)
-;;             (message (format nil "Magic numbers ~a found in '~a'. Define them as constants." ?nums ?name))
-;; 	    (score 4))))
+            (score 5))))
 
 
 (defrule rule-1-3-magic-number-usage ()
@@ -163,13 +148,42 @@
             (score 8))))
 
 
+(defrule rule-1-6-variable-mutation ()
+  (code-commit-analysis (symbol-name ?name) (mutated-symbols ?syms))
+  (test (not (null ?syms)))
+  =>
+  (let* ((mut-count (length ?syms))
+         ;; 4 puntos base + 2 por cada variable mutada adicional
+         (penalty (+ 4 (* 2 (1- mut-count))))
+         (msg (format nil "Side-effect Warning: Variables mutadas en '~a': ~a. Considera un enfoque funcional." 
+                      ?name ?syms)))
+    (eval `(lisa:assert (violation (rule-id "1.6")
+                                  (severity :warning)
+                                  (message ,msg)
+                          (score ,penalty))))))
+
+
+
+(defrule rule-1-7-constant-nil-return ()
+  ;; Solo tiene sentido en funciones que no son predicados explícitos
+  (code-commit-analysis (symbol-name ?name) 
+                        (symbol-type function)
+                        (returns-constant-nil-p t)
+                        (is-predicate-p nil))
+  =>
+  (assert (violation (rule-id "1.7")
+                     (severity :warning)
+                     (message (format nil "Logic Warning: '~a' siempre retorna NIL. ¿Es una implementación incompleta?" ?name))
+                     (score 5))))
 
 ;;;
 ;;; "Ensures all definitions are documented."
 ;;;
 
 (defrule rule-5-1-missing-docstring ()
-  (code-commit-analysis (symbol-name ?name) (has-docstring-p nil))
+  (code-commit-analysis (symbol-name ?name)
+			(symbol-type function)
+			(has-docstring-p nil))
   =>
   (assert (violation (rule-id "5.1")
             (severity :info)
@@ -196,14 +210,16 @@
 ;;;
 ;;; "Alerts when a function already exists in the forensic history."
 ;;;
-
 (defrule rule-2-2-internal-redefinition ()
-  (code-commit-analysis (symbol-name ?name) (is-redefining-core-symbol-p t))
+  (code-commit-analysis (symbol-name ?name) 
+                        (symbol-type ?type) 
+                        (is-redefining-core-symbol-p t))
   =>
   (assert (violation (rule-id "2.2")
             (severity :info) 
-            (message (format nil "Mutation detected: '~a' has been updated in the history." ?name))
-	    (score 2))))
+            (message (format nil "Mutation: The ~A '~a' has been updated in the history." ?type ?name))
+            (score 2))))
+
 
 
 ;;;
@@ -229,34 +245,6 @@
                      (score 8))))
 
 
-(defrule rule-1-6-variable-mutation ()
-  (code-commit-analysis (symbol-name ?name) (mutated-symbols ?syms))
-  (test (not (null ?syms)))
-  =>
-  (let* ((mut-count (length ?syms))
-         ;; 4 puntos base + 2 por cada variable mutada adicional
-         (penalty (+ 4 (* 2 (1- mut-count))))
-         (msg (format nil "Side-effect Warning: Variables mutadas en '~a': ~a. Considera un enfoque funcional." 
-                      ?name ?syms)))
-    (eval `(lisa:assert (violation (rule-id "1.6")
-                                  (severity :warning)
-                                  (message ,msg)
-                          (score ,penalty))))))
-
-
-(defrule rule-1-7-constant-nil-return ()
-  (code-commit-analysis (symbol-name ?name) 
-                        (returns-constant-nil-p t)
-                        (is-predicate-p ?p))
-  ;; Solo disparamos si ?p es explícitamente NIL. 
-  ;; Si es T, la regla simplemente se ignora (que es lo que queremos para TEST-P).
-  (test (eq ?p nil)) 
-  =>
-  (assert (violation (rule-id "1.7")
-                     (severity :warning)
-                     (message (format nil "Logic Warning: '~a' siempre retorna NIL. ¿Es una implementación incompleta?" ?name))
-                     (score 5))))
-
 
 
 ;;;
@@ -278,71 +266,56 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; 5. LOGIC & NASA JPL (POWER OF TEN) RULES
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
 ;;;
 ;;; "Automatically triggers a deep logic validation for every commit."
 ;;;
-
 (defrule rule-trigger-logical-audit ()
-  (code-commit-analysis (symbol-name ?name))
+  (code-commit-analysis (symbol-name ?name) (symbol-type function))
   =>
   (assert (goal (type validate-logic) (target ?name) (status active))))
 
-;;;
-;;; "Detects dead code branches (NASA JPL Rule 1)."
-;;;
-
-
 (defrule rule-logic-unreachable-code ()
   (goal (type validate-logic) (target ?name) (status active))
-  (code-commit-analysis (symbol-name ?name) (has-dead-code-p t))
+  (code-commit-analysis (symbol-name ?name) (symbol-type function) (has-dead-code-p t))
   =>
   (assert (violation (rule-id "LOGIC-02")
             (severity :error)
             (message (format nil "Dead Code in '~A': Unreachable branches detected." ?name))
-	    (score 12))))
-
-;;;
-;;;  "Prohibits direct recursion in critical systems (NASA JPL Rule 1)."
-;;;
+            (score 12))))
 
 (defrule rule-nasa-01-no-recursion ()
   (goal (type validate-logic) (target ?name) (status active))
-  (code-commit-analysis (symbol-name ?name) (is-recursive-p t))
+  (code-commit-analysis (symbol-name ?name) (symbol-type function) (is-recursive-p t))
   =>
   (assert (violation (rule-id "NASA-01")
             (severity :warning)
             (message (format nil "Recursion Violation: '~A' calls itself. Prohibited in high-integrity code." ?name))
-	    (score 7))))
-
-;;;
-;;;  "Ensures all loops have a defined exit condition (NASA JPL Rule 2)."
-;;;
-
-(defrule rule-nasa-02-unbounded-loop ()
-  (goal (type validate-logic) (target ?name) (status active))
-  (code-commit-analysis (symbol-name ?name) (has-unbounded-loop-p t))
-  =>
-  (assert (violation (rule-id "NASA-02")
-            (severity :error)
-            (message (format nil "Unbounded Loop in '~A': All loops must have an exit clause." ?name))
-	    (score 15))))
-
-
-;;;
-;;; "Encourages defensive programming (NASA JPL Rule 5)."
-;;;
-
+            (score 7))))
 
 (defrule rule-nasa-05-assertion-density ()
   (goal (type validate-logic) (target ?name) (status active))
-  (code-commit-analysis (symbol-name ?name) (assertion-count ?count) (body-length ?len))
+  (code-commit-analysis (symbol-name ?name) 
+                        (symbol-type function) ;; Indispensable para no molestar a las variables
+                        (assertion-count ?count) 
+                        (body-length ?len))
   (test (and (numberp ?len) (> ?len 10) (zerop ?count)))
   =>
   (assert (violation (rule-id "NASA-05")
             (severity :warning)
             (message (format nil "Low Assertion Density in '~A': No safety checks (assert/check-type) found." ?name))
-	    (score 6))))
+            (score 6))))
+
+;;; Regla para detectar captura genérica de errores sin acción (Silent Fail)
+;;(defrule rule-nasa-10-silent-errors ()
+;;  (goal (type validate-logic) (target ?name) (status active))
+  ;; Necesitas que tu analizador previo ponga este hecho si detecta el patrón
+;;  (code-commit-analysis (symbol-name ?name) (symbol-type function) (has-silent-error-p t))
+;;  =>
+;;  (assert (violation (rule-id "NASA-10")
+;;           (severity :error)
+;;            (message (format nil "Silent Fail in '~A': Generic error catching (NIL) hides bugs." ?name))
+;;           (score 15))))
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; 6. IMPACT ANALYSIS (BACKWARD CHAINING)

@@ -48,33 +48,111 @@
 (defun find-magic-numbers (form)
   "Escáner selectivo: Ignora números en definiciones locales, casos y offsets comunes."
   (let ((found-numbers nil)
-        ;; Lista de perdón: Números que tienen sentido semántico por sí mismos
         (whitelist '(0 1 2 -1 10 100))) 
     (labels ((scan (subform in-assignment)
                (cond 
                  ((numberp subform)
-                  ;; Si no está en la lista blanca y no es parte de un LET/DEF, es mágico
                   (unless (or (member subform whitelist) in-assignment)
                     (push subform found-numbers)))
                  
                  ((listp subform)
                   (let ((op (car subform)))
                     (cond 
-                      ;; Ignorar el valor si está siendo asignado a un nombre (Semántica)
-                      ((member op '(let let* defconstant defvar defparameter))
+                      ;; Caso LET: itera sobre una lista de listas/símbolos
+                      ((member op '(let let*))
                        (dolist (binding (second subform))
                          (if (listp binding)
-                             (scan (second binding) t) ;; El número está 'protegido' por un nombre
-                             (scan binding nil))))
+                             (scan (second binding) t)
+                             (scan binding nil)))
+                       (dolist (item (cddr subform)) (scan item nil)))
+
+                      ;; Caso DEF*: El valor está en el THIRD, no en una lista de bindings
+                      ((member op '(defconstant defvar defparameter))
+                       (scan (third subform) t)) ;; El valor (ej: 3.14) está protegido
                       
-                      ;; Ignorar números en CASE y DOTIMES (son identificadores o límites)
+                      ;; Casos de control con límites/IDs
                       ((member op '(case ecase ccase dotimes make-array sleep))
                        (dolist (item (cdr subform)) (scan item t)))
                       
-                      ;; Escaneo normal para el resto
+                      ;; Escaneo normal
                       (t (dolist (item (cdr subform)) (scan item nil)))))))))
       (scan form nil)
       (when found-numbers (list (remove-duplicates found-numbers))))))
+
+
+
+;;;;;
+(defun find-magic-numbers (form)
+  "Escáner selectivo: Ignora números en definiciones locales, casos y offsets comunes."
+  (let ((found-numbers nil)
+        (whitelist '(0 1 2 -1 10 100))) 
+    (labels ((scan (subform in-assignment)
+               (cond 
+                 ((numberp subform)
+                  (unless (or (member subform whitelist) in-assignment)
+                    (push subform found-numbers)))
+                 
+                 ((listp subform)
+                  (let ((op (car subform)))
+                    (cond 
+                      ;; LET/LET*: El segundo elemento es una LISTA de bindings
+                      ((member op '(let let*))
+                       (let ((bindings (second subform)))
+                         (if (listp bindings)
+                             (dolist (binding bindings)
+                               (if (listp binding)
+                                   (scan (second binding) t) ;; El valor inicial está protegido
+                                   (scan binding nil)))
+                             (scan bindings nil)))
+                       ;; Escanear el cuerpo del LET
+                       (dolist (item (cddr subform)) (scan item nil)))
+
+                      ;; DEFVAR/DEFPARAMETER/DEFCONSTANT: El segundo es un símbolo, el tercero es el valor
+                      ((member op '(defconstant defvar defparameter))
+                       ;; Protegemos el valor inicial (third) para que no cuente como mágico
+                       (when (third subform)
+                         (scan (third subform) t)))
+                      
+                      ;; Casos de control (sus argumentos se consideran 'configuración', no magia)
+                      ((member op '(case ecase ccase dotimes make-array sleep))
+                       (dolist (item (cdr subform)) (scan item t)))
+                      
+                      ;; Escaneo recursivo para el resto de las formas
+                      (t (dolist (item (cdr subform)) (scan item nil)))))))))
+      (scan form nil)
+      (when found-numbers (list (remove-duplicates found-numbers))))))
+
+
+;; (defun find-magic-numbers (form)
+;;   "Escáner selectivo: Ignora números en definiciones locales, casos y offsets comunes."
+;;   (let ((found-numbers nil)
+;;         ;; Lista de perdón: Números que tienen sentido semántico por sí mismos
+;;         (whitelist '(0 1 2 -1 10 100))) 
+;;     (labels ((scan (subform in-assignment)
+;;                (cond 
+;;                  ((numberp subform)
+;;                   ;; Si no está en la lista blanca y no es parte de un LET/DEF, es mágico
+;;                   (unless (or (member subform whitelist) in-assignment)
+;;                     (push subform found-numbers)))
+                 
+;;                  ((listp subform)
+;;                   (let ((op (car subform)))
+;;                     (cond 
+;;                       ;; Ignorar el valor si está siendo asignado a un nombre (Semántica)
+;;                       ((member op '(let let* defconstant defvar defparameter))
+;;                        (dolist (binding (second subform))
+;;                          (if (listp binding)
+;;                              (scan (second binding) t) ;; El número está 'protegido' por un nombre
+;;                              (scan binding nil))))
+                      
+;;                       ;; Ignorar números en CASE y DOTIMES (son identificadores o límites)
+;;                       ((member op '(case ecase ccase dotimes make-array sleep))
+;;                        (dolist (item (cdr subform)) (scan item t)))
+                      
+;;                       ;; Escaneo normal para el resto
+;;                       (t (dolist (item (cdr subform)) (scan item nil)))))))))
+;;       (scan form nil)
+;;       (when found-numbers (list (remove-duplicates found-numbers))))))
 
 
 
@@ -347,7 +425,7 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 
-(defun analyze-commit-and-assert (&key uuid name has-docstring-p body-length
+(defun analyze-commit-and-assert (&key uuid name symbol-type has-docstring-p body-length
 				    cyclomatic-complexity magic-numbers
 				    unused-parameters is-redef calls
 				    uses-unsafe-execution-p contains-heavy-consing-loop-p
@@ -362,6 +440,7 @@
           `(code-commit-analysis
             (commit-uuid ,uuid)
             (symbol-name ,name)
+	    (symbol-type ,symbol-type)
             (body-length ,body-length)
             (cyclomatic-complexity ,cyclomatic-complexity)
             (magic-numbers ',magic-numbers)
