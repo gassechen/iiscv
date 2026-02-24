@@ -45,39 +45,39 @@
     (+ 1 (count-decision-points body))))
 
 
-(defun find-magic-numbers (form)
-  "Escáner selectivo: Ignora números en definiciones locales, casos y offsets comunes."
-  (let ((found-numbers nil)
-        (whitelist '(0 1 2 -1 10 100))) 
-    (labels ((scan (subform in-assignment)
-               (cond 
-                 ((numberp subform)
-                  (unless (or (member subform whitelist) in-assignment)
-                    (push subform found-numbers)))
+;; (defun find-magic-numbers (form)
+;;   "Escáner selectivo: Ignora números en definiciones locales, casos y offsets comunes."
+;;   (let ((found-numbers nil)
+;;         (whitelist '(0 1 2 -1 10 100))) 
+;;     (labels ((scan (subform in-assignment)
+;;                (cond 
+;;                  ((numberp subform)
+;;                   (unless (or (member subform whitelist) in-assignment)
+;;                     (push subform found-numbers)))
                  
-                 ((listp subform)
-                  (let ((op (car subform)))
-                    (cond 
-                      ;; Caso LET: itera sobre una lista de listas/símbolos
-                      ((member op '(let let*))
-                       (dolist (binding (second subform))
-                         (if (listp binding)
-                             (scan (second binding) t)
-                             (scan binding nil)))
-                       (dolist (item (cddr subform)) (scan item nil)))
+;;                  ((listp subform)
+;;                   (let ((op (car subform)))
+;;                     (cond 
+;;                       ;; Caso LET: itera sobre una lista de listas/símbolos
+;;                       ((member op '(let let*))
+;;                        (dolist (binding (second subform))
+;;                          (if (listp binding)
+;;                              (scan (second binding) t)
+;;                              (scan binding nil)))
+;;                        (dolist (item (cddr subform)) (scan item nil)))
 
-                      ;; Caso DEF*: El valor está en el THIRD, no en una lista de bindings
-                      ((member op '(defconstant defvar defparameter))
-                       (scan (third subform) t)) ;; El valor (ej: 3.14) está protegido
+;;                       ;; Caso DEF*: El valor está en el THIRD, no en una lista de bindings
+;;                       ((member op '(defconstant defvar defparameter))
+;;                        (scan (third subform) t)) ;; El valor (ej: 3.14) está protegido
                       
-                      ;; Casos de control con límites/IDs
-                      ((member op '(case ecase ccase dotimes make-array sleep))
-                       (dolist (item (cdr subform)) (scan item t)))
+;;                       ;; Casos de control con límites/IDs
+;;                       ((member op '(case ecase ccase dotimes make-array sleep))
+;;                        (dolist (item (cdr subform)) (scan item t)))
                       
-                      ;; Escaneo normal
-                      (t (dolist (item (cdr subform)) (scan item nil)))))))))
-      (scan form nil)
-      (when found-numbers (list (remove-duplicates found-numbers))))))
+;;                       ;; Escaneo normal
+;;                       (t (dolist (item (cdr subform)) (scan item nil)))))))))
+;;       (scan form nil)
+;;       (when found-numbers (list (remove-duplicates found-numbers))))))
 
 
 
@@ -432,7 +432,8 @@
 				    uses-implementation-specific-symbols-p style-critiques status
                                     is-predicate has-dead-code is-recursive 
                                     assertion-count has-unbounded-loop
-                                    has-side-effects returns-constant-nil mutated-symbols) 
+                                    has-side-effects returns-constant-nil mutated-symbols
+				    definition-form) 
   "Feeds all forensic data into the LISA engine."
   (setq *audit-violations* nil)
   (lisa:reset)
@@ -460,7 +461,8 @@
             (has-unbounded-loop-p ,has-unbounded-loop)
             (has-side-effects-p ,has-side-effects)
             (returns-constant-nil-p ,returns-constant-nil)
-	    (mutated-symbols ',mutated-symbols))))
+	    (mutated-symbols ',mutated-symbols)
+	    (definition-form',definition-form))))
     (eval `(lisa:assert ,fact-data)))
   (lisa:run)
   (lisa:run))

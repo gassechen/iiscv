@@ -39,7 +39,8 @@
   (slot is-predicate-p)
   (slot is-recursive-p)
   (slot has-unbounded-loop-p)
-  (slot assertion-count))
+  (slot assertion-count)
+  (slot definition-form))
 
 ;;;
 ;;; "Control fact for managing multi-step reasoning (e.g., Impact Analysis, Logic Validation)."
@@ -193,15 +194,19 @@
 ;;;
 ;;; "Triggers style recommendations from the Lisp Critic."
 ;;;
-
 (defrule rule-idiomatic-lisp-style ()
   (code-commit-analysis (symbol-name ?name) (style-critiques ?c))
-  (test (not (null ?c)))
+  ;; Verificamos que no sea NIL y que, si es string, no esté vacío
+  (test (and (not (null ?c))
+             (or (not (stringp ?c))
+                 (> (length (string-trim '(#\Space #\Newline #\Tab) ?c)) 0))))
   =>
   (assert (violation (rule-id "IDIOMATIC-01")
             (severity :warning)
             (message (format nil "Style recommendations for '~a': ~a" ?name ?c))
-	    (score 3))))
+            (score 3))))
+
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; 4. SECURITY & RELIABILITY RULES
@@ -345,3 +350,99 @@
 		(score 4)))))
   (retract ?g))
 
+
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defrule rule-fire-test-constant-integrity ()
+  "Valida la integridad de constantes y variables globales."
+  (goal (type audit) (target ?target) (status active))
+  (code-commit-analysis (definition-form ?form) (symbol-name ?name))
+  ;; Verificamos que sea un DEFCONSTANT o DEFPARAMETER
+  (test (member (first ?form) '(defconstant defparameter defvar)))
+  =>
+  (format t "~%[ROVE-AUDIT] Validando constante/global: ~A..." ?name)
+  (handler-case
+      (progn
+        (eval ?form) ;; La materializamos para que esté disponible
+        (assert (goal (type validate-logic) (target ?target) (status approved)))
+        (format t "~%[OK] Constante ~A activa en el sistema." ?name))
+    (error (c)
+      (format t "~%[ERROR] Fallo al definir constante: ~A" c)
+      (assert (violation (rule-id "CONST-ERR") (score 100) (message "Error de definición")))
+      (assert (goal (type validate-logic) (target ?target) (status failed))))))
+
+
+
+
+
+(defrule rule-fire-test-rove-execution ()
+  (goal (type audit) (target ?target) (status approved))
+  (?g (goal (type validate-logic) (target ?target) (status active)))
+  (code-commit-analysis (definition-form ?form) (symbol-name ?name))
+  =>
+  (format t "~%[ROVE-AUDIT] Verificando integridad de ~A..." ?target)
+  
+  ;; --- MEJORA: Scoping dinámico basado en el símbolo ---
+  (let* ((target-symbol (find-symbol (string-upcase ?name)))
+         ;; Si el símbolo no existe aún, usamos el paquete actual por defecto
+         (target-package (if target-symbol 
+                             (symbol-package target-symbol) 
+                             *package*))
+         (form-to-test ?form)
+         (target-name ?name))
+    
+    (format t "~%[INFO] Compilando en contexto de paquete: ~A" (package-name target-package))
+    
+    (let ((*package* target-package)) ;; Anclaje dinámico
+      (multiple-value-bind (compiled-fn warn-p fail-p)
+          (compile nil `(lambda () ,form-to-test))
+        (declare (ignore compiled-fn))
+        
+        (if (or warn-p fail-p)
+            (progn
+              (format t "~%[BLOQUEADO] Fallo de integridad en ~A: Símbolos indefinidos." target-name)
+              (assert (violation (rule-id "COMPILATION-WARN")
+                                 (severity :error)
+                                 (message (format nil "Integrity check failed in package ~A" (package-name target-package)))
+                                 (score 100)))
+              (modify ?g (status failed)))
+            (progn
+              (format t "~%[OK] ~A validado correctamente." target-name)
+              (modify ?g (status approved))))))))
+
+
+(defrule rule-init-audit-goal ()
+  (code-commit-analysis (symbol-name ?name))
+  (not (goal (type audit) (target ?name)))
+  =>
+  (assert (goal (type audit) (target ?name) (status active))))
+
+(defrule rule-evaluate-muro-threshold (:salience -100)
+  ;; Aquí atrapamos la instancia del hecho en ?g 
+  ;; PERO NO usamos slot-value luego. 
+  (?g (goal (type audit) (target ?target) (status active)))
+  =>
+  (let ((total (calculate-total-score *audit-violations*)))
+    ;; Usamos MODIFY de LISA, que es seguro.
+    (if (<= total iiscv::*iiscv-tolerance*)
+        (modify ?g (status approved))
+        (modify ?g (status rejected)))
+    
+    ;; NO USES (slot-value ?g 'status) ACÁ. Es lo que hace explotar a SBCL.
+    ;; Imprimimos un log genérico o usamos el valor que ya sabemos que tiene.
+    (format t "~%[LISA-FORENSIC] Análisis de '~A' completado. Score: ~A" ?target total)))
+
+
+
+(defrule rule-finalize-commit-to-graph ()
+  ;; 1. Primero validamos que la meta esté aprobada (Backward Chaining result)
+  (goal (type audit) (target ?target) (status approved))
+  (goal (type validate-logic) (target ?target) (status approved))
+  
+  ;; 2. Buscamos el análisis que tiene el mismo nombre y extraemos el form
+  (code-commit-analysis (symbol-name ?target) (definition-form ?form))
+  =>
+  ;; 3. Ahora sí, ?form existe en este contexto
+  (format t "~%[MURO-OK] Paso de guardia exitoso. Registrando átomo '~A' en el grafo." ?target)
+  (make-atomic-commit ?form))

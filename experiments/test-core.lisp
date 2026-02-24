@@ -2,7 +2,7 @@
 (in-package :iiscv)
 
 (format t "~%--- INICIANDO MEGA-SUITE TOTAL E INCREMENTAL ---~%")
-
+(clear-all-commits)
 ;; =========================================================
 ;; BLOQUE 1: FUNCIONES Y LÓGICA (ESTILO Y NASA)
 ;; =========================================================

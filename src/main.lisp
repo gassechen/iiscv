@@ -208,7 +208,8 @@
      :has-unbounded-loop (has-unbounded-loops-p definition-form)
      :has-side-effects (not (null mutations))
      :returns-constant-nil (or (null last-val) (eq last-val nil))
-     :mutated-symbols mutations)
+     :mutated-symbols mutations
+     :definition-form definition-form)
 
     (let* ((sorted-violations (sort-violations-by-score *audit-violations*))
            (total-score (calculate-total-score *audit-violations*))
@@ -222,8 +223,9 @@
         (format t "  [~A] (~2D pts) ~A: ~A~%"
                 (third v) (violation-score-t v) (second v) (first v)))
 
-      (when (<= total-score *iiscv-tolerance*)
-        (make-atomic-commit definition-form)))))
+      ;;(when (<= total-score *iiscv-tolerance*)
+      ;;  (make-atomic-commit definition-form))
+      )))
 
 
 (defun make-atomic-commit (definition-form)
