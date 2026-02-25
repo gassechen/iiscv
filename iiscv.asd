@@ -15,7 +15,8 @@
 		 (:file "register-commit-type")
 		 (:file "reports")
 		 (:file "lisa-rules")
-		 (:file "lisa-rules-aux-fn"))))
+		 (:file "lisa-rules-aux-fn")
+		 (:file "global-audit"))))
   :description ""
   :in-order-to ((test-op (test-op "iiscv/tests"))))
 

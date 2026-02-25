@@ -6,7 +6,9 @@
 (defvar *audit-violations* nil
   "A global list to collect messages from audit rules during a commit.")
 
-(lisa-lisp:make-inference-engine)
+(defvar *atomic-rete nil)
+
+(setf *atomic-rete (lisa-lisp:make-inference-engine))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; 1. FACT TEMPLATES

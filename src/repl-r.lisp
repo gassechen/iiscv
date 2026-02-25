@@ -41,8 +41,16 @@
             (return)
             (progn
               (when (get-commit-type form)
-                (make-atomic-commit form))
+                (make-assert form))
               (eval form))))))
   (format t "~%File '~A' loaded and audited successfully.~%" filename))
 
 
+(defun save-audit-vault (filename)
+  "Serializa el historial de átomos a un archivo legible."
+  (with-open-file (out filename 
+                       :direction :output 
+                       :if-exists :supersede)
+    (format out ";;; IISCV VAULT DUMP - ~A~%" (get-universal-time))
+    (print *human-history-graph* out) ; Si el grafo soporta print-object
+    (format t "Bóveda guardada en ~A. Salud del sistema preservada.~%" filename)))
