@@ -353,15 +353,14 @@
   (retract ?g))
 
 
-
-
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defrule rule-fire-test-constant-integrity ()
   "Valida la integridad de constantes y variables globales."
   (goal (type audit) (target ?target) (status active))
   (code-commit-analysis (definition-form ?form) (symbol-name ?name))
   ;; Verificamos que sea un DEFCONSTANT o DEFPARAMETER
-  (test (member (first ?form) '(defconstant defparameter defvar)))
+  (test (eq (get-commit-type ?form) 'variable))
+
   =>
   (format t "~%[ROVE-AUDIT] Validando constante/global: ~A..." ?name)
   (handler-case
@@ -375,6 +374,23 @@
       (assert (goal (type validate-logic) (target ?target) (status failed))))))
 
 
+;; dependencys 
+(defrule rule-fire-test-dependency-integrity ()
+  "Valida y carga dependencias usando el registro central de tipos."
+  (goal (type audit) (target ?target) (status active))
+  (code-commit-analysis (definition-form ?form) (symbol-name ?name))
+  
+  ;; Usamos tu función generalista
+  (test (eq (get-commit-type ?form) 'dependency))
+  =>
+  (format t "~%[INFRA-AUDIT] Procesando Dependencia: ~A..." ?name)
+  (handler-case
+      (progn
+        (eval ?form) 
+        (assert (goal (type validate-logic) (target ?target) (status approved))))
+    (error (c)
+      (assert (violation (rule-id "DEP-ERR") (score 100) (message (format nil "~A" c))))
+      (assert (goal (type validate-logic) (target ?target) (status failed))))))
 
 
 

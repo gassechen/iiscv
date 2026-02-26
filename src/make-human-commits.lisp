@@ -29,6 +29,8 @@
         (manual-human-commit message unique-symbols)
         (format t "~%[IISCV] No pending changes to commit.~%"))))
 
+
+
 (defun manual-human-commit (message symbols &optional (file-path nil))
   "Manually creates a milestone for specific symbols and sets their status to :CURATED."
   (let* ((atomic-uuids (loop for sym in symbols

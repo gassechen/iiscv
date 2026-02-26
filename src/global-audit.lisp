@@ -193,3 +193,7 @@
                   trend))
         (setf last-score score))))
   (format t "~V@{~A~:*~}~%~%" 55 "-"))
+
+
+
+
