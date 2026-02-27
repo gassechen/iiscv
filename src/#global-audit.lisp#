@@ -195,8 +195,6 @@
   (format t "~V@{~A~:*~}~%~%" 55 "-"))
 
 
-
-
 (defun rebuild-audit-history ()
   "Recorre todos los hitos humanos y regenera el cache de auditoría."
   (format t "~%--- RECONSTRUYENDO HISTORIAL DE AUDITORÍA ---~%")
@@ -214,32 +212,3 @@
     (format t "~%--- RECONSTRUCCIÓN FINALIZADA ---~%")
     (show-health-evolution)))
 
-
-(defun rebuild-audit-history-quiet ()
-  "Reconstrucción con reporte de progreso minimalista."
-  (format t "~%--- RECONSTRUCCIÓN CRONOLÓGICA DE RIESGO ---~%")
-  (format t "~30A | ~10A | ~A~%" "HITO" "SCORE" "CAMBIO")
-  (format t "~V@{~A~:*~}~%" 55 "-")
-  
-  (let ((last-score 0)
-        (milestones (cl-graph:topological-sort *human-history-graph*)))
-    (dolist (node milestones)
-      (let* ((data (cl-graph:element node))
-             (uuid (getf data :uuid))
-             (msg (or (getf data :message) "Sin mensaje"))
-             ;; Ejecutamos en silencio
-             (violations (run-global-audit uuid ))
-             (current-score (reduce #'+ (mapcar #'fourth violations) :initial-value 0))
-             (diff (- current-score last-score))
-             (change-str (cond ((> diff 0) (format nil "+~D ⚠️" diff))
-                               ((< diff 0) (format nil "~D ✅" diff))
-                               (t "---"))))
-        
-        (format t "~30A | ~10A | ~A~%" 
-                (if (> (length msg) 27) (subseq msg 0 27) msg)
-                current-score 
-                change-str)
-        (setf last-score current-score)))
-    
-    (format t "~V@{~A~:*~}~%~%" 55 "-")
-    (format t "Historial reconstruido en cache.~%")))

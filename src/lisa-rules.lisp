@@ -6,9 +6,7 @@
 (defvar *audit-violations* nil
   "A global list to collect messages from audit rules during a commit.")
 
-(defvar *atomic-rete nil)
 
-(setf *atomic-rete (lisa-lisp:make-inference-engine))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; 1. FACT TEMPLATES
@@ -281,6 +279,7 @@
   =>
   (assert (goal (type validate-logic) (target ?name) (status active))))
 
+
 (defrule rule-logic-unreachable-code ()
   (goal (type validate-logic) (target ?name) (status active))
   (code-commit-analysis (symbol-name ?name) (symbol-type function) (has-dead-code-p t))
@@ -342,15 +341,22 @@
 ;;; 
 
 (defrule rule-process-impact ()
+  "Calcula el impacto ponderado pero lista explícitamente los dependientes afectados."
   (?g (goal (type trace-impact) (target ?target) (status active)))
   =>
-  (let ((dependents (iiscv::find-dependents-in-history ?target)))
-    (dolist (dep dependents)
-      (assert (violation (rule-id "LOGIC-IMPACT")
-                (severity :warning)
-                (message (format nil "Forensic Impact: '~A' depends on '~A' and requires review." dep ?target))
-		(score 4)))))
-  (retract ?g))
+  (let* ((dependents (iiscv::find-dependents-in-history ?target))
+         (dep-count (length dependents)))
+    (when (> dep-count 0)
+      (let* ((penalty (+ 2 (1- dep-count)))
+             ;; Creamos un string con la lista de dependientes: "DEP1, DEP2, ..."
+             (dep-list (format nil "~{~A~^, ~}" dependents))
+             (msg (format nil "Forensic Impact: ~d funciones ~%(~a) ~%dependen de '~A' y requieren revisión." 
+                          dep-count dep-list ?target)))
+        (eval `(lisa:assert (violation (rule-id "LOGIC-IMPACT")
+                                      (severity :warning)
+                                      (message ,msg)
+                                      (score ,penalty))))))
+    (retract ?g)))
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;

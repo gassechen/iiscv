@@ -229,19 +229,73 @@
           when (and (listp form) (not (eq (car form) 'declare))) return nil)))
 
 
+
+
+(defun terminal-clause-p (op key)
+  "Determina si una llave o predicado cierra todas las opciones posibles."
+  (case op
+    (cond (member key '(t 't)))
+    ((case ecase ccase typecase etypecase) 
+     (or (member key '(t otherwise))
+         (and (listp key) (member t key))))
+    (handler-case (member key '(t error condition)))
+    (t nil)))
+
+
+(defun audit-conditional-params (op args)
+  "Audita IF, WHEN y UNLESS con precisión quirúrgica para IISCV."
+  (let ((test (car args))
+        (then (cadr args))
+        (else (caddr args)))
+    (declare (ignore then))
+    (case op
+      (if (cond 
+            ((eq test t)   (not (null else))) 
+            ((eq test nil) t)                 
+            (t nil)))
+      (when (eq test nil))   
+      (unless (eq test t))))) 
+
+(defun audit-sequential-clauses (op clauses)
+  "Audita COND, CASE, etc., buscando sombras después de una rama terminal."
+  (let ((saw-final nil)
+        (dead-found nil))
+    (dolist (c clauses dead-found)
+      (if saw-final
+          (setf dead-found t)
+          (when (terminal-clause-p op (car c))
+            (setf saw-final t))))))
+
 (defun has-dead-code-p (form)
-  "Detects unreachable logic branches based on constant predicates."
-  (let ((found nil))
-    (labels ((scan (x)
-               (cond ((listp x)
-                      (case (car x)
-                        ((if when unless)
-                         (when (member (second x) '(t nil)) (setf found t)))
-                        (cond (dolist (c (cdr x))
-                                (when (member (car c) '(t nil)) (setf found t)))))
-                      (mapc #'scan (cdr x))))))
-      (scan form)
-      found)))
+  "Auditor modularizado corregido: separa el objeto de evaluación de las cláusulas."
+  (check-type form list)
+  (labels ((scan (expr)
+             (when (consp expr)
+               (let* ((op (car expr))
+                      (args (cdr expr))
+                      (found (case op
+                               ;; IF/WHEN/UNLESS: Pasan todos los argumentos
+                               ((if when unless) 
+                                (audit-conditional-params op args))
+                               
+                               ;; CASE/TYPECASE: Saltan el primer argumento (la variable/forma)
+                               ((case ecase ccase typecase etypecase) 
+                                (audit-sequential-clauses op (cdr args)))
+                               
+                               ;; COND: Pasa todos los argumentos (ya son cláusulas)
+                               (cond 
+                                (audit-sequential-clauses op args))
+                               
+                               ;; HANDLER-CASE: Salta la forma protegida
+                               (handler-case 
+                                (audit-sequential-clauses op (cdr args)))
+                               
+                               (t nil))))
+                 (or found (some #'scan args))))))
+    (scan form)))
+
+
+
 
 (defun is-recursive-p (name form)
   "NASA Rule 1: Detects if the function calls itself by scanning the body independently."
@@ -356,27 +410,6 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 
-;; (defun extract-calls (form &optional current-name)
-;;   "Extracts calls, including the function itself (for recursion detection)."
-;;   (let ((calls '())
-;;         (current-fqn (when current-name 
-;;                        (if (symbolp current-name)
-;;                            (format nil "~A::~A" (package-name (symbol-package current-name)) (symbol-name current-name))
-;;                            (princ-to-string current-name)))))
-;;     (labels ((scan (x)
-;;                (cond ((listp x)
-;;                       (let ((head (car x)))
-;;                         (when (symbolp head)
-;;                           (let ((fqn (format nil "~A::~A" (package-name (symbol-package head)) (symbol-name head))))
-;;                             (when (or (gethash fqn iiscv::*function-to-uuid-map*)
-;;                                       (string= fqn current-fqn))
-;;                               (pushnew fqn calls :test #'equal))))
-;;                         (mapc #'scan x))))))
-;;       (scan (get-body-forms form))
-;;       calls)))
-
-
-
 (defun extract-calls (form &optional current-name)
   (let ((calls '())
         (current-fqn (when current-name 
@@ -396,6 +429,27 @@
       (scan (get-body-forms form))
       calls)))
 
+
+(defun extract-calls (form &optional current-name)
+  "Versión original portátil: Escanea el código fuente buscando símbolos de función."
+  (let ((calls '())
+        (current-fqn (when current-name 
+                       (if (symbolp current-name)
+                           (format nil "~A::~A" (package-name (symbol-package current-name)) (symbol-name current-name))
+                           (princ-to-string current-name)))))
+    (labels ((scan (x)
+               (cond 
+                 ;; Si es un símbolo (podría ser una función o variable)
+                 ((symbolp x)
+                  (let ((fqn (format nil "~A::~A" (package-name (symbol-package x)) (symbol-name x))))
+                    (unless (or (string= fqn current-fqn)
+                                (member fqn '("COMMON-LISP::NIL" "COMMON-LISP::T") :test #'string=))
+                      (pushnew fqn calls :test #'equal))))
+                 ;; Si es una lista, la recorremos entera
+                 ((listp x)
+                  (mapc #'scan x)))))
+      (scan (get-body-forms form))
+      calls)))
 
 
 
