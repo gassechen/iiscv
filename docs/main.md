@@ -105,14 +105,14 @@ Completamente documentado
 ## Formato de Violaciones
 
 Las violaciones se representan como listas:
-#+begin_src lisp
+```lisp
 (message severity rule-id score)
-#+end_src
+```
 
 Ejemplo:
-#+begin_src lisp
+```lisp
 ("High cyclomatic complexity (8) found in function 'FOO'." :error "1.1" 10)
-#+end_src
+```
 
 ---
 
@@ -127,7 +127,7 @@ Ejemplo:
 
 ## Ejemplo de Uso
 
-#+begin_src lisp
+```lisp
 ;; Auditar y commitear una función
 (make-assert '(defun mi-funcion (x y)
                 "Suma dos números"
@@ -135,7 +135,7 @@ Ejemplo:
 
 ;; Ver estado actual
 (clear-all-commits)
-#+end_src
+```
 
 ---
 

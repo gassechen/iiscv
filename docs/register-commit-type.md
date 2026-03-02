@@ -48,10 +48,10 @@ Completamente documentado
 - =commit-type=: Tipo de commit (ej: =function=)
 
 **Ejemplo:**
-#+begin_src lisp
+```lisp
 (register-commit-type 'defgeneric 'function)
 (register-commit-type 'defmethod 'function)
-#+end_src
+```
 
 ---
 
@@ -67,7 +67,7 @@ Completamente documentado
 - NIL si no está registrado
 
 **Ejemplo:**
-#+begin_src lisp
+```lisp
 (get-commit-type '(defun bar (x) x))
 ;; => FUNCTION
 
@@ -76,7 +76,7 @@ Completamente documentado
 
 (get-commit-type '(print "hello"))
 ;; => NIL
-#+end_src
+```
 
 ---
 
@@ -92,7 +92,7 @@ Completamente documentado
 
 El tipo de commit se usa para agrupar definiciones en archivos separados:
 
-#+begin_src lisp
+```lisp
 (case commit-type
   (function "functions.lisp")
   (variable "variables.lisp")
@@ -100,7 +100,7 @@ El tipo de commit se usa para agrupar definiciones en archivos separados:
   (slot-change "slot-changes.lisp")
   (dependency "dependencies.lisp")
   (t (format nil "~a.lisp" commit-type)))
-#+end_src
+```
 
 ---
 
@@ -109,18 +109,18 @@ El tipo de commit se usa para agrupar definiciones en archivos separados:
 Para agregar nuevos tipos de commit:
 
 1. Registrar el tipo:
-#+begin_src lisp
+```lisp
 (register-commit-type 'defgeneric 'function)
 (register-commit-type 'defmethod 'function)
 (register-commit-type 'defpackage 'module)
-#+end_src
+```
 
 2. Opcionalmente agregar al caso en =dump-source-code.lisp=:
-#+begin_src lisp
+```lisp
 (case commit-type
   ...
   (module "modules.lisp"))
-#+end_src
+```
 
 ---
 
@@ -134,7 +134,7 @@ Para agregar nuevos tipos de commit:
 
 ## Ejemplo de Uso
 
-#+begin_src lisp
+```lisp
 ;; Verificar tipo de una forma
 (get-commit-type '(defun mi-funcion (x) x))
 ;; => FUNCTION
@@ -144,4 +144,4 @@ Para agregar nuevos tipos de commit:
 
 ;; Registrar nuevo tipo
 (register-commit-type 'defgeneric 'function)
-#+end_src
+```

@@ -34,13 +34,13 @@ Completamente documentado
 - NIL si no se encuentra
 
 **Ejemplo:**
-#+begin_src lisp
+```lisp
 (get-source-form "IISCV::FOO")
 ;; => (DEFUN FOO (X) (+ X 1))
 
 (get-source-form "IISCV::FOO" :full-commit-p t)
 ;; => (:UUID "..." :SYMBOL-NAME FOO :SOURCE-FORM ... :STATUS :EXPERIMENTAL ...)
-#+end_src
+```
 
 ---
 
@@ -65,10 +65,10 @@ Completamente documentado
 **Retorna:** UUID como string o NIL
 
 **Ejemplo:**
-#+begin_src lisp
+```lisp
 (get-last-uuid-by-name 'foo)
 ;; => "550e8400-e29b-41d4-a716-446655440000"
-#+end_src
+```
 
 ---
 
@@ -101,10 +101,10 @@ Completamente documentado
 **Retorna:** Vértice o NIL
 
 **Ejemplo:**
-#+begin_src lisp
+```lisp
 (find-vertex-by-symbol-name 'mi-funcion)
 ;; => #<VERTEX ...>
-#+end_src
+```
 
 ---
 
@@ -130,10 +130,10 @@ Completamente documentado
 - =separator=: String separador
 
 **Ejemplo:**
-#+begin_src lisp
+```lisp
 (string-join '("a" "b" "c") ", ")
 ;; => "a, b, c"
-#+end_src
+```
 
 ---
 
@@ -146,11 +146,11 @@ El hash table =*function-to-uuid-map*= es la tabla principal de búsqueda:
 | "PACKAGE::NAME" | UUID string |
 
 **Ejemplo de estructura interna:**
-#+begin_src lisp
+```lisp
 ;; Después de commitear (defun foo () ...)
 (setf (gethash "IISCV::FOO" *function-to-uuid-map*) 
       "550e8400-e29b-41d4-a716-446655440000")
-#+end_src
+```
 
 ---
 
@@ -165,7 +165,7 @@ El hash table =*function-to-uuid-map*= es la tabla principal de búsqueda:
 
 ## Ejemplo de Uso
 
-#+begin_src lisp
+```lisp
 ;; Consultar código de una función
 (get-source-form "IISCV::MI-FUNCION")
 
@@ -179,4 +179,4 @@ El hash table =*function-to-uuid-map*= es la tabla principal de búsqueda:
 (let ((vertex (find-vertex-by-symbol-name 'mi-funcion)))
   (when vertex
     (get-data-from-vertex vertex)))
-#+end_src
+```

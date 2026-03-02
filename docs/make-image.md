@@ -116,7 +116,7 @@ Completamente documentado
 
 ## Flujo de Saving
 
-#+begin
+```
 Cambios pendientes?
     │
     ├──► Sí → Error, hacer make-human-commit primero
@@ -128,7 +128,7 @@ Cambios pendientes?
           │
           └──► save-production-image
                └──► rebuild + guarda solo código
-#+end
+```
 
 ---
 
@@ -142,7 +142,7 @@ Cambios pendientes?
 
 ## Ejemplo de Uso
 
-#+begin_src lisp
+```lisp
 ;; Verificar cambios pendientes
 (has-pending-changes-p)
 
@@ -157,7 +157,7 @@ Cambios pendientes?
 
 ;; Reconstruir desde historial completo
 (rebuild-image-from-atomic-history)
-#+end_src
+```
 
 ---
 

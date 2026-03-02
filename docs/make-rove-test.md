@@ -38,10 +38,10 @@ Completamente documentado
 - =form=: Forma Lisp a testear
 
 **Retorna:**
-#+begin_src lisp
+```lisp
 (rove:deftest :COMMIT-<UUID>-TEST
   (rove:ok (eval ',form) "The form should evaluate without error."))
-#+end_src
+```
 
 ---
 
@@ -79,7 +79,7 @@ Completamente documentado
 
 ## Flujo de Trabajo
 
-#+begin_src
+```lisp
 make-assert(form)
     │
     ▼
@@ -90,18 +90,18 @@ make-file-commit(uuid, form)  ;; Genera audits/uuid.lisp
     │
     ▼
 run-all-audits()  ;; Carga y ejecuta todos los tests
-#+end_src
+```
 
 ---
 
 ## Estructura de Archivo Generado
 
-#+begin_src lisp
+```lisp
 ;; Archivo: audits/550e8400-e29b-41d4-a716-446655440000.lisp
 
 (rove:deftest :COMMIT-550E8400-E29B-41D4-A716-446655440000-TEST
   (rove:ok (eval '(defun foo (x) (+ x 1))) "The form should evaluate without error."))
-#+end_src
+```
 
 ---
 
@@ -123,7 +123,7 @@ Para IISCV: =~/quicklisp/local-projects/iiscv/audits/=
 
 ## Ejemplo de Uso
 
-#+begin_src lisp
+```lisp
 ;; Después de hacer commits
 (make-assert '(defun test-fn (x) (+ x 1)))
 
@@ -133,7 +133,7 @@ Para IISCV: =~/quicklisp/local-projects/iiscv/audits/=
 
 ;; Ejecutar todos los tests
 (run-all-audits)
-#+end_src
+```
 
 ---
 

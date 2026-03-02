@@ -29,10 +29,10 @@ Completamente documentado
 
 Extrae el cuerpo de una definición, manejando correctamente docstrings.
 
-#+begin_src lisp
+```lisp
 (get-body-forms '(defun foo (x) "doc" (bar x)))
 ;; => ((bar x))
-#+end_src
+```
 
 ---
 
@@ -300,7 +300,7 @@ Limpia nombres para uso en LISA (remueve =::=).
 
 ## Ejemplo de Uso
 
-#+begin_src lisp
+```lisp
 ;; Analizar una función
 (calculate-cyclomatic-complexity 
   '(defun ejemplo (x)
@@ -321,4 +321,4 @@ Limpia nombres para uso en LISA (remueve =::=).
      (foo)
      (baz)))
 ;; => ("IISCV::FOO" "IISCV::BAZ")
-#+end_src
+```

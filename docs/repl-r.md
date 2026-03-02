@@ -38,7 +38,7 @@ Completamente documentado
 5. Imprime el resultado (sauf :no-print)
 
 **Ejemplo de sesión:**
-#+begin
+```
 IISCV> (defun saludar (nombre)
          (format t "Hola ~A~%" nombre))
 [IISCV-OK] Átomo registrado: 550e8400-e29b-41d4-a716-446655440000
@@ -47,7 +47,7 @@ IISCV> (defun saludar (nombre)
 IISCV> (saludar "Mundo")
 Hola Mundo
 NIL
-#+end
+```
 
 ---
 
@@ -67,12 +67,12 @@ NIL
 - =filename=: Ruta al archivo .lisp
 
 **Ejemplo:**
-#+begin_src lisp
+```lisp
 (iiscv-load "mis-funciones.lisp")
 ;; [AUDIT] MI-FUNCION | Violations: 2 (0 errors, 2 warnings) | Total Score: 8
 ;; [IISCV-OK] Átomo registrado: ...
 ;; File 'mis-funciones.lisp' loaded and audited successfully.
-#+end_src
+```
 
 ---
 

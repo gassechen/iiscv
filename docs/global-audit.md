@@ -37,41 +37,41 @@ Completamente documentado
 
 Representa una función en el snapshot del sistema.
 
-#+begin_src lisp
+```lisp
 (deftemplate sys-func ()
   (slot name)
   (slot arity))
-#+end_src
+```
 
 ### sys-call
 
 Representa una llamada entre funciones.
 
-#+begin_src lisp
+```lisp
 (deftemplate sys-call ()
   (slot from)
   (slot to))
-#+end_src
+```
 
 ### sys-goal
 
 Meta de auditoría global.
 
-#+begin_src lisp
+```lisp
 (deftemplate sys-goal ()
   (slot status))
-#+end_src
+```
 
 ### sys-spof-score
 
 Puntuación de Single Point Of Failure.
 
-#+begin_src lisp
+```lisp
 (deftemplate sys-spof-score ()
   (slot func-name)
   (slot count)
   (slot processed-parents))
-#+end_src
+```
 
 ---
 
@@ -159,7 +159,7 @@ Puntuación de Single Point Of Failure.
 **Propósito:** Imprime el Dashboard Global.
 
 **Formato de salida:**
-#+begin
+```
 ============================================================
 [ IISCV GLOBAL AUDIT DASHBOARD ]
 ============================================================
@@ -173,7 +173,7 @@ ID         | SCORE   | DESCRIPCIÓN
 GLOBAL-01  | 10      | Ciclo: FOO <-> BAR
 GLOBAL-06  | 15      | SPOF: 'BAZ' tiene 3 dependientes.
 ============================================================
-#+end
+```
 
 **Estados:**
 | Score | Estado |
@@ -189,7 +189,7 @@ GLOBAL-06  | 15      | SPOF: 'BAZ' tiene 3 dependientes.
 **Propósito:** Muestra la tendencia de salud del proyecto a lo largo de los hitos.
 
 **Formato de salida:**
-#+begin
+```
 --- EVOLUCIÓN DE SALUD (VÍA CACHE) ---
 HITO                         | SCORE     | TENDENCIA
 -------------------------------------------------------
@@ -197,7 +197,7 @@ Release v1.0                 | 25        | INIT
 Add feature X                | 30        | EMPEORANDO
 Fix bugs                    | 20        | MEJORANDO
 -------------------------------------------------------
-#+end
+```
 
 ---
 
@@ -226,15 +226,15 @@ Fix bugs                    | 20        | MEJORANDO
 **Propósito:** Ejecuta auditoría global sobre el último hito humano.
 
 **Equivalente a:**
-#+begin_src lisp
+```lisp
 (run-global-audit *current-human-commit*)
-#+end_src
+```
 
 ---
 
 ## Flujo de Auditoría Global
 
-#+begin_src
+```_src
 make-human-commit("Release v1.0")
     │
     ▼
@@ -253,7 +253,7 @@ run-global-audit(commit-uuid)
 show-health-evolution()
     │
     └──► Mostrar tendencia por hito
-#+end_src
+```
 
 ---
 
@@ -268,7 +268,7 @@ show-health-evolution()
 
 ## Ejemplo de Uso
 
-#+begin_src lisp
+```lisp
 ;; Crear un hito
 (make-human-commit "Release 1.0")
 
@@ -283,7 +283,7 @@ show-health-evolution()
 
 ;; Reconstruuir todo el historial
 (rebuild-audit-history)
-#+end_src
+```
 
 ---
 

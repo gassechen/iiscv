@@ -47,7 +47,7 @@ Completamente documentado
 **Propósito:** Muestra el historial curado del proyecto navegando los commits humanos.
 
 **Formato de salida:**
-#+begin
+```
 --- Project Milestones (Human History) ---
 
 * Milestone: Release v1.0
@@ -58,7 +58,7 @@ Completamente documentado
 * Milestone: Fix bugs
   UUID: ...
 --------------------------------------------
-#+end
+```
 
 ---
 
@@ -67,7 +67,7 @@ Completamente documentado
 **Propósito:** Muestra el historial completo y detallado navegando los commits atómicos.
 
 **Formato de salida:**
-#+begin
+```
 --- Atomic History Audit (Blockchain) ---
 
 * Atomic Commit: 550e8400-e29b-41d4-a716-446655440000
@@ -76,7 +76,7 @@ Completamente documentado
   Timestamp: 3979401818
   Violations detected: (("High complexity" ...))
 ...
-#+end
+```
 
 ---
 
@@ -94,7 +94,7 @@ Completamente documentado
 5. Imprime reporte detallado
 
 **Formato de salida:**
-#+begin
+```
 ==================================================================
    IISCV FORENSIC REPORT: DEUDA TÉCNICA DEL GRAFO ATÓMICO
 ==================================================================
@@ -112,7 +112,7 @@ Completamente documentado
 
 Reporte finalizado. Usa (sanitize-atom "MY-FUNCTION") para el primer objetivo.
 ==================================================================
-#+end
+```
 
 **Retorna:** NIL
 
@@ -135,7 +135,7 @@ Reporte finalizado. Usa (sanitize-atom "MY-FUNCTION") para el primer objetivo.
 - =function-name=: Nombre de la función (string o símbolo)
 
 **Ejemplo de uso:**
-#+begin_src lisp
+```lisp
 (sanitize-atom "MI-FUNCION")
 ;; Muestra:
 ;; ================================================
@@ -149,7 +149,7 @@ Reporte finalizado. Usa (sanitize-atom "MY-FUNCTION") para el primer objetivo.
 ;; (defun mi-funcion (x) (+ x 1))  ; Usuario ingresa esto
 ;;
 ;; [MURO] Re-evaluando integridad de MI-FUNCION...
-#+end_src
+```
 
 **Retorna:** NIL
 
@@ -165,7 +165,7 @@ Reporte finalizado. Usa (sanitize-atom "MY-FUNCTION") para el primer objetivo.
 
 ## Ejemplo de Uso
 
-#+begin_src lisp
+```lisp
 ;; Ver hitos del proyecto
 (show-project-milestones)
 
@@ -177,7 +177,7 @@ Reporte finalizado. Usa (sanitize-atom "MY-FUNCTION") para el primer objetivo.
 
 ;; Sanear una función
 (sanitize-atom 'mi-funcion-problematica)
-#+end_src
+```
 
 ---
 

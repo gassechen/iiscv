@@ -94,7 +94,7 @@ El sistema de curación es的核心 de la política de calidad:
 **SAFETY-01:** Prohibe que funciones =:curated= dependan de =:experimental=.
 
 Esta regla se define en =lisa-rules.lisp=:
-#+begin_src lisp
+```lisp
 (defrule rule-safety-curation-leak ()
   (code-commit-analysis (symbol-name ?caller) (status :curated) (calls ?calls))
   =>
@@ -103,7 +103,7 @@ Esta regla se define en =lisa-rules.lisp=:
            (data (when v (cl-graph:element v))))
       (when (and data (eq (getf data :status) :experimental))
         (assert (violation ...))))))
-#+end_src
+```
 
 ---
 
@@ -121,7 +121,7 @@ Esta regla se define en =lisa-rules.lisp=:
 
 ## Flujo de Trabajo Típico
 
-#+begin_src lisp
+```lisp
 ;; Desarrollo continuo (commits atómicos)
 (make-assert '(defun util-1 () ...))
 (make-assert '(defun util-2 () ...))
@@ -132,7 +132,7 @@ Esta regla se define en =lisa-rules.lisp=:
 
 ;; Ahora todas las funciones son :curated
 ;; y pueden ser usadas por otro código :curated
-#+end_src
+```
 
 ---
 
@@ -147,7 +147,7 @@ Esta regla se define en =lisa-rules.lisp=:
 
 ## Ejemplo de Uso
 
-#+begin_src lisp
+```lisp
 ;; Verificar si hay cambios pendientes
 (has-pending-changes-p)
 
@@ -160,7 +160,7 @@ Esta regla se define en =lisa-rules.lisp=:
 
 ;; Ver historial de hitos
 (show-project-milestones)
-#+end_src
+```
 
 ---
 

@@ -37,12 +37,12 @@ Completamente documentado
 - NIL si no existe en el historial
 
 **Ejemplo:**
-#+begin_src lisp
+```lisp
 (get-class-source-form 'mi-clase)
 ;; => (DEFCLASS MI-CLASE ()
 ;;     ((SLOT1 :INITARG :SLOT1)
 ;;      (SLOT2 :INITARG :SLOT2)))
-#+end_src
+```
 
 ---
 
@@ -92,13 +92,13 @@ Completamente documentado
 - =slot-definition=: Forma del slot (ej: =(slot-name :initarg :slot-name :accessor slot-name)=)
 
 **Ejemplo:**
-#+begin_src lisp
+```lisp
 (add-slot 'persona '(edad :initarg :edad :accessor persona-edad :initform 0))
 ;; Crea y evalúa:
 ;; (DEFCLASS PERSONA ()
 ;;   ((NOMBRE :INITARG :NOMBRE :ACCESSOR PERSONA-NOMBRE)
 ;;    (EDAD :INITARG :EDAD :ACCESSOR PERSONA-EDAD :INITFORM 0)))
-#+end_src
+```
 
 ---
 
@@ -118,13 +118,13 @@ Completamente documentado
 - =slot-name=: Símbolo del slot a remover
 
 **Ejemplo:**
-#+begin_src lisp
+```lisp
 (remove-slot 'persona 'edad)
 ;; Crea y evalúa:
 ;; (DEFCLASS PERSONA ()
 ;;   ((NOMBRE :INITARG :NOMBRE :ACCESSOR PERSONA-NOMBRE)))
 ;; (remueve el slot EDAD)
-#+end_src
+```
 
 ---
 
@@ -141,7 +141,7 @@ Estos macros están registrados en =register-commit-type.lisp=:
 
 ## Flujo de Trabajo
 
-#+begin
+```lisp
 ;; Primero, definir la clase
 (make-assert '(defclass persona ()
                ((nombre :initarg :nombre))))
@@ -151,7 +151,7 @@ Estos macros están registrados en =register-commit-type.lisp=:
 
 ;; Remover un slot
 (remove-slot 'persona 'edad)
-#+end
+```
 
 ---
 
@@ -165,7 +165,7 @@ Estos macros están registrados en =register-commit-type.lisp=:
 
 ## Ejemplo de Uso
 
-#+begin_src lisp
+```lisp
 ;; Consultar forma actual de una clase
 (get-class-source-form 'mi-clase)
 
@@ -174,7 +174,7 @@ Estos macros están registrados en =register-commit-type.lisp=:
 
 ;; Remover slot
 (remove-slot 'usuario 'password)
-#+end_src
+```
 
 ---
 

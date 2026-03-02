@@ -30,7 +30,7 @@ Completamente documentado
 
 Template principal que representa el análisis estático y lógico de una definición de código.
 
-#+begin_src lisp
+```lisp
 (deftemplate code-commit-analysis ()
   (slot commit-uuid)          
   (slot symbol-name)          
@@ -56,30 +56,30 @@ Template principal que representa el análisis estático y lógico de una defini
   (slot has-unbounded-loop-p)
   (slot assertion-count)
   (slot definition-form))
-#+end_src
+```
 
 ### goal
 
 Template de control para gestionar razonamiento multi-paso (Análisis de Impacto, Validación Lógica).
 
-#+begin_src lisp
+```lisp
 (deftemplate goal ()
   (slot type)      ;; audit, validate-logic, trace-impact
   (slot target)   ;; nombre del símbolo
   (slot status))  ;; active, approved, rejected, failed
-#+end_src
+```
 
 ### violation
 
 Template generado cuando una regla de calidad o seguridad es activada.
 
-#+begin_src lisp
+```lisp
 (deftemplate violation ()
   (slot rule-id) 
   (slot severity)  ;; :info, :warning, :error
   (slot message)
   (slot score))
-#+end_src
+```
 
 ---
 
@@ -335,7 +335,7 @@ Verifica integridad compilando en el contexto del paquete.
 
 ## Ejemplo de Traza
 
-#+begin_src lisp
+```lisp
 ;; Al hacer commit de una función
 (make-assert '(defun slow-func (x)
                 (loop for i from 1 to 100
@@ -349,4 +349,4 @@ Verifica integridad compilando en el contexto del paquete.
 ;; Si *iiscv-tolerance* = 10:
 ;; - rule-evaluate-muro-threshold → rejected
 ;; - No se ejecuta make-atomic-commit
-#+end_src
+```
