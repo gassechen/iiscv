@@ -1,0 +1,253 @@
+#+TITLE: Simulación de Sistema de Cálculo de Nómina (IISCV)
+#+AUTHOR: IISCV System
+#+DATE: 2024
+#+OPTIONS: toc:t num:t
+
+Este documento registra la sesión de desarrollo y auditoría de un pequeño sistema de nómina en Lisp, utilizando la herramienta de análisis estático y trazabilidad *IISCV*.
+
+* Índice
+1. [[#el-átomo-base-calcular-impuesto][El Átomo Base: CALCULAR-IMPUESTO]]
+2. [[#el-intermediario-generar-recibo][El Intermediario: GENERAR-RECIBO]]
+3. [[#la-maestra-procesar-planilla][La Maestra: PROCESAR-PLANILLA]]
+4. [[#historial-atómico-y-dependencias][Historial Atómico y Dependencias]]
+5. [[#test-de-estrés-indirect-calls][Test de Estrés: Indirect-Calls]]
+6. [[#auditoría-global-y-spof][Auditoría Global y SPOF]]
+7. [[#test-de-infección-de-dependencias][Test de Infección de Dependencias]]
+8. [[#evolución-de-salud][Evolución de Salud]]
+
+* El Átomo Base: CALCULAR-IMPUESTO
+:PROPERTIES:
+:ID: el-átomo-base-calcular-impuesto
+:END:
+
+Función pura que calcula el 21% de impuesto. No depende de nadie.
+
+#+BEGIN_SRC lisp
+(make-assert '(defun calcular-impuesto (monto)
+  "Calcula el 21% de impuesto."
+  (* monto 0.21)))
+#+END_SRC
+
+** Salida de IISCV:
+#+BEGIN_EXAMPLE
+[LISA-FORENSIC] Análisis de 'CALCULAR-IMPUESTO' completado. Score: 4
+[ROVE-AUDIT] Verificando integridad de CALCULAR-IMPUESTO...
+[INFO] Compilando en contexto de paquete: IISCV
+[OK] CALCULAR-IMPUESTO validado correctamente.
+[MURO-OK] Paso de guardia exitoso. Registrando átomo 'CALCULAR-IMPUESTO' en el grafo.
+WARNING: redefining IISCV::CALCULAR-IMPUESTO in DEFUN
+[IISCV-OK] Átomo registrado: 24AB76B0-32C2-490E-9E72-75D29183D086
+
+[AUDIT] CALCULAR-IMPUESTO | Violations: 1 (0 errors, 1 warnings) | Total Score: 4
+  [1.3] ( 4 pts) WARNING: Se detectaron 1 números mágicos ((0.21)) en 'CALCULAR-IMPUESTO'.
+#+END_EXAMPLE
+
+* El Intermediario: GENERAR-RECIBO
+:PROPERTIES:
+:ID: el-intermediario-generar-recibo
+:END:
+
+Esta función llama directamente a la anterior (posición car).
+
+#+BEGIN_SRC lisp
+(make-assert '(defun generar-recibo (empleado sueldo)
+  "Crea un string con el recibo y el impuesto calculado."
+  (let ((impuesto (calcular-impuesto sueldo)))
+    (format nil "Empleado: ~A | Neto: ~A | Impuesto: ~A" 
+            empleado sueldo impuesto))))
+#+END_SRC
+
+** Salida de IISCV:
+#+BEGIN_EXAMPLE
+[LISA-FORENSIC] Análisis de 'GENERAR-RECIBO' completado. Score: 0
+[ROVE-AUDIT] Verificando integridad de GENERAR-RECIBO...
+[INFO] Compilando en contexto de paquete: IISCV
+[OK] GENERAR-RECIBO validado correctamente.
+[MURO-OK] Paso de guardia exitoso. Registrando átomo 'GENERAR-RECIBO' en el grafo.
+[IISCV-OK] Átomo registrado: 29475A10-3370-4389-96A3-1AD5F4D48D45
+
+[AUDIT] GENERAR-RECIBO | Violations: 0 (0 errors, 0 warnings) | Total Score: 0
+#+END_EXAMPLE
+
+* La Maestra: PROCESAR-PLANILLA
+:PROPERTIES:
+:ID: la-maestra-procesar-planilla
+:END:
+
+Prueba de fuego para el extracto de llamadas recursivo, usa =#'CALCULAR-IMPUESTO= como argumento de orden superior.
+
+#+BEGIN_SRC lisp
+(make-assert '(defun procesar-planilla (lista-sueldos)
+  "Aplica el cálculo de impuestos a toda una lista."
+  (mapcar #'calcular-impuesto lista-sueldos)))
+#+END_SRC
+
+** Salida de IISCV:
+#+BEGIN_EXAMPLE
+[LISA-FORENSIC] Análisis de 'PROCESAR-PLANILLA' completado. Score: 0
+[ROVE-AUDIT] Verificando integridad de PROCESAR-PLANILLA...
+[INFO] Compilando en contexto de paquete: IISCV
+[OK] PROCESAR-PLANILLA validado correctamente.
+[MURO-OK] Paso de guardia exitoso. Registrando átomo 'PROCESAR-PLANILLA' en el grafo.
+[IISCV-OK] Átomo registrado: 2BFEC36C-31D5-4B63-85A3-0D5FE08BC7E4
+
+[AUDIT] PROCESAR-PLANILLA | Violations: 0 (0 errors, 0 warnings) | Total Score: 0
+#+END_EXAMPLE
+
+* Historial Atómico y Dependencias
+:PROPERTIES:
+:ID: historial-atómico-y-dependencias
+:END:
+
+Consultando el grafo de dependencias y el historial blockchain de átomos.
+
+#+BEGIN_EXAMPLE
+IISCV> (find-dependents-in-history 'calcular-impuesto)
+(PROCESAR-PLANILLA GENERAR-RECIBO)
+
+IISCV> (audit-atomic-history)
+--- Atomic History Audit (Blockchain) ---
+
+* Atomic Commit: 24AB76B0-32C2-490E-9E72-75D29183D086
+  Message: Calcula el 21% de impuesto.
+  Form: (DEFUN CALCULAR-IMPUESTO (MONTO) ...)
+  Violations detected: (Se detectaron 1 números mágicos ((0.21))...)
+
+* Atomic Commit: 29475A10-3370-4389-96A3-1AD5F4D48D45
+  Message: Crea un string con el recibo y el impuesto calculado.
+  Violations detected: NIL
+
+* Atomic Commit: 2BFEC36C-31D5-4B63-85A3-0D5FE08BC7E4
+  Message: Aplica el cálculo de impuestos a toda una lista.
+  Violations detected: NIL
+#+END_EXAMPLE
+
+* Test de Estrés: Indirect-Calls
+:PROPERTIES:
+:ID: test-de-estrés-indirect-calls
+:END:
+
+Creamos funciones que no mencionan a =CALCULAR-IMPUESTO= en la posición de llamada, sino que la reciben y ejecutan mediante =FUNCALL= y =APPLY=.
+
+** 5.1 Invocación por FUNCALL
+#+BEGIN_SRC lisp
+(make-assert '(defun ejecutor-dinamico (monto)
+  "Ejecuta el cálculo usando funcall."
+  (funcall #'calcular-impuesto monto)))
+#+END_SRC
+
+*Resultado:* Validado correctamente. Score: 0.
+
+** 5.2 Invocación por APPLY
+#+BEGIN_SRC lisp
+(make-assert '(defun ejecutor-masivo (lista-montos)
+  "Ejecuta el cálculo usando apply (solo el primero por simplicidad)."
+  (apply #'calcular-impuesto (list (car lista-montos)))))
+#+END_SRC
+
+*Resultado:* Validado con advertencia de estilo.
+#+BEGIN_EXAMPLE
+[AUDIT] EJECUTOR-MASIVO | Violations: 1 (0 errors, 1 warnings) | Total Score: 3
+  [IDIOMATIC-01] ( 3 pts) WARNING: Style recommendations for 'EJECUTOR-MASIVO': 
+  (APPLY (FUNCTION CALCULAR-IMPUESTO) (LIST ...)) makes a list for no reason.
+#+END_EXAMPLE
+
+** 5.3 Actualización de Dependencias
+#+BEGIN_EXAMPLE
+IISCV> (find-dependents-in-history 'calcular-impuesto)
+(EJECUTOR-MASIVO EJECUTOR-DINAMICO PROCESAR-PLANILLA GENERAR-RECIBO)
+#+END_EXAMPLE
+
+* Auditoría Global y SPOF
+:PROPERTIES:
+:ID: auditoría-global-y-spof
+:END:
+
+Se realiza un commit humano y una auditoría global del estado del sistema.
+
+#+BEGIN_EXAMPLE
+IISCV> (make-human-commit "TRACE TEST")
+[CURATION] CALCULAR-IMPUESTO promoted to :CURATED.
+[CURATION] GENERAR-RECIBO promoted to :CURATED.
+...
+[IISCV] Human commit created: TRACE TEST "5ED86917-BC63-43E7-BEE8-FF1B0C1C61CF"
+
+IISCV> (audit-current)
+=== Ejecutando Auditoría Global ===
+============================================================
+[ IISCV GLOBAL AUDIT DASHBOARD ]
+------------------------------------------------------------
+ESTADO: GREEN - ESTABLE
+RIESGO TOTAL: 15 pts
+INCIDENCIAS:  1
+
+ID         | SCORE    | DESCRIPCIÓN
+------------------------------------------------------------
+GLOBAL-06  | 15       | SPOF: 'CALCULAR-IMPUESTO' tiene 4 dependientes.
+============================================================
+#+END_EXAMPLE
+
+* Test de Infección de Dependencias
+:PROPERTIES:
+:ID: test-de-infección-de-dependencias
+:END:
+
+Intentamos actualizar =CALCULAR-IMPUESTO= con algo que rompa la lógica para sus dependientes (devolver un string en lugar de un número).
+
+** Intento de Sabotaje
+#+BEGIN_SRC lisp
+(make-assert '(defun calcular-impuesto (monto)
+  "SABOTAJE: Ahora devuelvo basura para romper los dependientes."
+  (declare (ignore monto))
+  "ERROR_DE_SISTEMA"))
+#+END_SRC
+
+** Impacto Forense Detectado:
+#+BEGIN_EXAMPLE
+[AUDIT] CALCULAR-IMPUESTO | Violations: 2 (0 errors, 1 warnings) | Total Score: 7
+  [LOGIC-IMPACT] ( 5 pts) WARNING: Forensic Impact: 4 funciones 
+  (EJECUTOR-MASIVO, EJECUTOR-DINAMICO, PROCESAR-PLANILLA, GENERAR-RECIBO) 
+  dependen de 'CALCULAR-IMPUESTO' y requieren revisión.
+#+END_EXAMPLE
+
+** Corrección
+Se restaura la función con una implementación más limpia (variable local).
+#+BEGIN_SRC lisp
+(make-assert '(defun calcular-impuesto (monto)
+  "Calcula el impuesto usando un factor de escala definido."
+  (declare (type number monto))
+  (let ((factor-iva 0.21))
+    (* monto factor-iva))))
+#+END_SRC
+
+*Nota:* La advertencia de impacto forense persiste ya que la firma lógica sigue siendo crítica para los 4 dependientes.
+
+* Evolución de Salud
+:PROPERTIES:
+:ID: evolución-de-salud
+:END:
+
+Resumen final de la salud del sistema a través de los hitos de la simulación.
+
+#+BEGIN_EXAMPLE
+IISCV> (show-health-evolution)
+
+--- EVOLUCIÓN DE SALUD (VÍA CACHE) ---
+HITO                           | SCORE      | TENDENCIA
+-------------------------------------------------------
+TRACE TEST                     | 15         | INIT
+GLOB TEST 1                    | 15         | ESTABLE
+GLOB TEST 2                    | 15         | ESTABLE
+-------------------------------------------------------
+#+END_EXAMPLE
+
+* Conclusiones
+1. *Trazabilidad:* IISCV detecta correctamente dependencias directas (=GENERAR-RECIBO=) y de orden superior (=PROCESAR-PLANILLA=, =EJECUTOR-DINAMICO=).
+2. *Impacto de Cambios:* Al modificar el átomo base, el sistema alerta sobre las 4 funciones afectadas (=LOGIC-IMPACT=).
+3. *Punto Único de Falla (SPOF):* La auditoría global identifica correctamente a =CALCULAR-IMPUESTO= como un riesgo debido a su alta cantidad de dependientes.
+4. *Estilo:* Se detectan mejoras potenciales en el uso de =APPLY= vs construcción de listas innecesarias.
+
+---
+#+BEGIN_COMMENT
+Fin del documento Org Mode
+#+END_COMMENT
